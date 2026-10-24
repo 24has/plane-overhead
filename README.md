@@ -15,8 +15,8 @@ Android tablet (kiosk browser, any origin)
    ▼
 Cloudflare Pages Function  functions/api/flights.js
    │  failover chain, edge-cached 15 s per spot:
-   │    1. airplanes.live  v2/point      (readsb schema, 250 nm max, 1 req/s)
-   │    2. adsb.fi         v3/lat/lon/dist (readsb schema, 250 nm max, 1 req/s)
+   │    1. adsb.lol         v2/point       (readsb schema, 250 nm max)
+   │    2. adsb.fi          v3/lat/lon/dist (readsb schema, 250 nm max)
    │    3. OpenSky Network  states/all bbox  (anonymous tier, ~400 credits/day)
    ▼
 normalised JSON → SVG radar + sorted list on the tablet
@@ -24,8 +24,9 @@ normalised JSON → SVG radar + sorted list on the tablet
 
 Why the proxy instead of hitting the feeds directly from the tablet:
 
-- **No CORS gambling.** airplanes.live and adsb.fi don't promise `Access-Control-Allow-Origin: *`; OpenSky does, but its anonymous credit quota is tiny. The Pages Function is same-origin with the frontend.
-- **Edge caching.** Subrequests are cached at the Cloudflare edge for 15 s (OpenSky fallback: 300 s to protect the anonymous credit quota), so a shelf of tablets polling the same spot generate at most one upstream hit per 15 s. Rate limits (1 req/s per upstream) are respected by construction.
+- **No CORS.** None of the community feeds serve `Access-Control-Allow-Origin`, so the tablet browser can't fetch them directly. The Pages Function is same-origin with the frontend.
+- **Cloudflare-to-Cloudflare gotcha.** Cloudflare zones (airplanes.live, adsb.fi) 403 fetches coming from a Worker — verified empirically. adsb.lol is served by istio-envoy, not Cloudflare, so it's the reliable lead source. airplanes.live additionally 403s all server-side clients regardless of IP.
+- **Edge caching.** Subrequests are cached at the Cloudflare edge for 15 s (OpenSky fallback: 300 s to protect the anonymous credit quota), so a shelf of tablets polling the same spot generate at most one upstream hit per 15 s. Rate limits are respected by construction.
 - **Failover.** If one feed is down or rate-limiting, the next serves the request.
 - **One normalised shape.** Every source maps to the same aircraft object: callsign, registration, type, lat/lon, altitude, ground speed, track, vertical rate, squawk, emergency flag, distance and bearing from home.
 
@@ -80,4 +81,4 @@ Try it: `curl "https://plane-overhead.pages.dev/api/flights?lat=-33.94&lon=151.1
 
 ## Credit
 
-Data: [airplanes.live](https://airplanes.live/), [adsb.fi](https://adsb.fi/), [OpenSky Network](https://opensky-network.org/) — community ADS-B receiver networks, free for personal use. Concept inspired by the Tesserae Air Traffic e-ink widget (tesserae.ink).
+Data: [adsb.lol](https://adsb.lol/), [adsb.fi](https://adsb.fi/), [OpenSky Network](https://opensky-network.org/) — community ADS-B receiver networks, free for personal use. Concept inspired by the Tesserae Air Traffic e-ink widget (tesserae.ink).
