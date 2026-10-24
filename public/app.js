@@ -11,17 +11,19 @@
 
   const DEFAULTS = {
     mode: 'auto',
-    lat: -28.8146,
-    lon: 153.0114,
-    label: '',
+    lat: -28.0167,        // Gold Coast QLD — starting spot until GPS takes over
+    lon: 153.4,
+    label: 'Gold Coast QLD',
     radius: 40,
     interval: 20,        // data poll (s)
     rotate: 45,          // plate rotation (s), 0 = off
     hideGnd: true,
   };
 
+  const LS_KEY = 'po.cfg2'; // v2: fresh start; the v1 key held a stale label
+
   const q = new URLSearchParams(location.search);
-  const ls = JSON.parse(localStorage.getItem('po.cfg') || '{}');
+  const ls = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
   const cfg = { ...DEFAULTS, ...ls };
   for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'rotate', 'mode']) {
     const v = q.get(k);
@@ -34,7 +36,7 @@
   cfg.rotate = +cfg.rotate;
   cfg.hideGnd = q.get('gnd') != null ? q.get('gnd') === '1' : (ls.hideGnd ?? true);
 
-  const save = () => localStorage.setItem('po.cfg', JSON.stringify(cfg));
+  const save = () => localStorage.setItem(LS_KEY, JSON.stringify(cfg));
 
   // ---------- state ----------
 
