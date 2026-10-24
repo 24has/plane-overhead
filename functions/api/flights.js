@@ -138,10 +138,13 @@ function parseOpenSky(json, home) {
 
 const SOURCES = [
   {
-    id: 'airplanes.live',
+    // adsb.lol is NOT behind Cloudflare (istio-envoy), so Worker fetches pass.
+    // airplanes.live 403s all server-side clients; adsb.fi (Cloudflare zone)
+    // 403s Worker fetches and serves no CORS headers, so neither leads here.
+    id: 'adsb.lol',
     cacheTtl: 15,
     url: (lat, lon, radius) =>
-      `https://api.airplanes.live/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${Math.ceil(radius)}`,
+      `https://api.adsb.lol/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${Math.ceil(radius)}`,
     parse: parseReadsb,
   },
   {
