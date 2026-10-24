@@ -3,89 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Plane Overhead</title>
-<meta name="description" content="The aircraft overhead, wherever you are: as a radar and as a field guide of photograph plates.">
-<meta name="theme-color" content="#0a0f0c" id="themeColorMeta">
+<title>Overhead</title>
+<meta name="description" content="The aircraft overhead, wherever you are, as a print.">
+<meta name="theme-color" content="#f4f0e4" id="themeColorMeta">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500;700&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
-<div id="app" data-theme="scope">
+<div id="app">
 
-  <header class="topbar">
-    <div class="brand">
-      <svg class="mark" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="1.4" opacity=".55"/>
-        <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".35"/>
-        <path d="M12 5.5 L13.9 17 L12 15.6 L10.1 17 Z" fill="currentColor"/>
-      </svg>
-      <div class="brand-text">
-        <h1>Plane Overhead</h1>
-        <p id="locLabel" class="sub">finding where you are&hellip;</p>
-      </div>
-    </div>
-    <div class="top-right">
-      <div class="clockstack">
-        <span id="clock" class="clock">--:--</span>
-        <span id="dateLine" class="dateline">&nbsp;</span>
-      </div>
-      <button id="btnView" class="iconbtn" aria-label="Switch view" title="Radar / plates">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="8" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="4" width="8" height="8" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="8" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="13" y="14" width="8" height="7" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-      </button>
-      <button id="btnTheme" class="iconbtn" aria-label="Switch theme" title="Theme">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4V2M12 22v-2M4 12H2m20 0h-2M6 6L4.5 4.5M18 18l1.5 1.5M6 18l-1.5 1.5M18 6l1.5-1.5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
-      </button>
-      <button id="btnFull" class="iconbtn" aria-label="Fullscreen" title="Fullscreen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5m11-5v5h-5" stroke="currentColor" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <button id="btnCfg" class="iconbtn" aria-label="Display setup" title="Setup">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" stroke="currentColor" stroke-width="1.6" fill="none"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.94 19.3a1.7 1.7 0 0 0-1.87.35l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.58 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 8.94a1.7 1.7 0 0 0-.35-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.58a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09c0 .68.4 1.3 1.03 1.56a1.7 1.7 0 0 0 1.87-.35l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.42 9c.26.63.88 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09c-.68 0-1.3.4-1.51 1Z" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linejoin="round"/></svg>
-      </button>
-    </div>
-  </header>
+  <main id="plateView">
 
-  <main id="viewRadar" class="panes">
-    <section class="scope-pane">
-      <svg id="scope" viewBox="-112 -112 224 224" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Radar scope of flights overhead"></svg>
-      <p class="scope-legend" id="scopeLegend">callsign &middot; altitude &times;100 ft</p>
-      <div class="scanline" id="scanline"></div>
-    </section>
-
-    <section class="list-pane">
-      <div id="hero" class="hero">
-        <p class="hero-kicker">Nearest overhead</p>
-        <div class="hero-body">
-          <div class="hero-cs" id="heroCs">&mdash;</div>
-          <div class="hero-dist" id="heroDist">&mdash;</div>
-          <p class="hero-sub" id="heroSub">waiting for first contact</p>
+    <figure class="print" id="print">
+      <div class="print-inner">
+        <div class="print-img" id="printImg">
+          <div class="ph" id="ph"></div>
         </div>
+        <figcaption class="print-cap">
+          <p class="genus" id="pGenus">Overhead</p>
+          <p class="species" id="pSpecies">waiting for the sky</p>
+          <p class="particulars" id="pParticulars">&nbsp;</p>
+          <p class="credit" id="pCredit">&nbsp;</p>
+        </figcaption>
       </div>
+      <p class="plate-no" id="plateNo">&nbsp;</p>
+    </figure>
 
-      <p class="status" id="status"><span class="chip dim">connecting</span></p>
+    <aside class="strip" id="strip" aria-label="Aircraft in reach"></aside>
 
-      <div class="list-head" id="listHead"></div>
-      <ol class="list" id="list"></ol>
-    </section>
-  </main>
-
-  <main id="viewOverhead" class="overhead" hidden>
-    <div class="oh-head">
-      <p class="oh-title" id="ohTitle">Overhead</p>
-      <p class="oh-sub" id="ohSub">&nbsp;</p>
-    </div>
-    <div class="plates" id="plates"></div>
-    <p class="status" id="ohStatus"><span class="chip dim">connecting</span></p>
   </main>
 
   <div id="errban" class="errban" hidden></div>
 
   <dialog id="cfg" class="cfg">
     <form method="dialog" id="cfgForm">
-      <h2>Display setup</h2>
+      <h2>Setup</h2>
 
       <div class="seg" role="radiogroup" aria-label="Location mode">
         <button type="button" id="modeAuto" class="seg-btn">Follow this device</button>
@@ -103,30 +59,18 @@
       <div class="row2">
         <label>Range
           <select id="cRadius">
-            <option value="25">25 nm</option><option value="50">50 nm</option>
-            <option value="60" selected>60 nm</option><option value="80">80 nm</option>
-            <option value="100">100 nm</option><option value="150">150 nm</option>
-            <option value="250">250 nm</option>
+            <option value="15">15 nm</option><option value="25">25 nm</option>
+            <option value="40" selected>40 nm</option><option value="60">60 nm</option>
+            <option value="100">100 nm</option>
           </select>
         </label>
-        <label>Refresh
-          <select id="cInterval">
-            <option value="10">every 10 s</option><option value="15" selected>every 15 s</option>
-            <option value="30">every 30 s</option><option value="60">every 60 s</option>
-          </select>
-        </label>
-      </div>
-      <div class="row2">
-        <label>Units
-          <select id="cUnits">
-            <option value="av" selected>Aviation &mdash; ft &middot; kt &middot; nm</option>
-            <option value="met">Metric &mdash; m &middot; km/h &middot; km</option>
-          </select>
-        </label>
-        <label>Theme
-          <select id="cTheme">
-            <option value="scope" selected>Scope (dark)</option>
-            <option value="paper">Paper (light)</option>
+        <label>Rotate plate
+          <select id="cRotate">
+            <option value="0">off</option>
+            <option value="20">every 20 s</option>
+            <option value="45" selected>every 45 s</option>
+            <option value="90">every 90 s</option>
+            <option value="300">every 5 min</option>
           </select>
         </label>
       </div>
@@ -139,7 +83,14 @@
     </form>
   </dialog>
 
+  <button id="btnCfg" class="fab" aria-label="Setup">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+  </button>
+  <button id="btnNext" class="fab next" aria-label="Next aircraft" hidden>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M12.5 6.5 18 12l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+
 </div>
-<script src="app.js?v=3" defer></script>
+<script src="app.js?v=4" defer></script>
 </body>
 </html>
