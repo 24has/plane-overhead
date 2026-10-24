@@ -177,6 +177,99 @@ function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { ...JSON_HEADERS } });
 }
 
+// ---------- airframe knowledge ----------
+
+// ICAO type -> wingspan (m). Used to size specimen cards; unknowns fall back
+// by category. From type databases and manufacturer specs.
+const WINGSPAN_M = {
+  A20N: 35.8, A21N: 35.8, A318: 34.1, A319: 35.8, A320: 35.8, A321: 35.8,
+  A332: 60.3, A333: 60.3, A339: 63.5, A338: 63.5, A342: 60.3, A346: 63.5,
+  A359: 64.75, A35K: 64.75, A388: 79.75,
+  B733: 28.9, B735: 28.9, B737: 28.9, B738: 35.8, B739: 35.8, B38M: 35.9, B39M: 35.9,
+  B744: 64.4, B748: 68.4, B752: 37.95, B753: 37.95, B762: 47.57, B763: 47.57, B764: 47.57,
+  B772: 60.93, B773: 60.93, B77W: 64.8, B783: 60.12, B788: 60.12, B789: 60.12, B78X: 60.12,
+  BCS1: 35.1, BCS3: 35.1, BC71: 35.1, BD50: 35.1,
+  E75L: 26.0, E75S: 26.0, E75T: 26.0, E170: 26.0, E190: 28.72, E195: 28.72, E290: 28.72, E295: 28.72,
+  E45X: 21.0, E55P: 19.2, E35L: 19.2,
+  AT72: 27.05, AT75: 27.05, AT76: 27.05, DHC8: 25.9, DHC4: 29.1, DHC3: 19.8,
+  D228: 20.0, SF34: 20.9, E120: 19.8, AT43: 24.6,
+  C208: 12.0, C172: 11.0, C182: 11.0, C206: 11.9, P180: 14.0, PC12: 10.6,
+  B350: 17.65, BE20: 13.4, GLF5: 23.7, GLF6: 23.7, GLEX: 30.4, CL60: 19.05,
+  C68A: 19.4, C25C: 19.4, C56X: 19.5, F2TH: 18.9, LJ75: 17.6, LJ45: 17.6, PC24: 22.9,
+  SF50: 12.8, TBM9: 12.2, SR22: 11.7, DA40: 10.1, DA62: 11.9, P28A: 10.2,
+  M20P: 11.0, BE58: 11.5, PA34: 11.9, PA28: 10.9, C150: 10.2, C510: 13.3,
+  R44: 11.9, R66: 11.9, AS50: 13.0, AS35: 10.2, EC35: 10.2, A139: 13.8,
+  A169: 12.6, A189: 16.6, S76: 13.4, S92: 17.2, B06: 10.0,
+};
+
+// Silhouette class for aircraft without a photograph.
+function silCategory(t) {
+  t = String(t || '').toUpperCase();
+  if (!t) return 'prop';
+  if (/^(R22|R44|R66|AS3[56]|AS5[0-9]|EC[1-3][0-9]|A109|A139|A169|A189|S76|S92|B06|H53|H60|H64|H75|UH1|UH60|EN28)/.test(t)) return 'heli';
+  if (/^(A2|A3[0-9]|B73|B7[4-8]|B38M|B39M|BCS|BD50|E7[0-9]|E9[0-9]|E1[79]|E2[79]|E45|E55|AT7|AT4|DHC|SF3|D22|E12|GLF|GLE|CL6|C68|C56|F2T|LJ|PC24|C25|K35)/.test(t)) return 'jet';
+  return 'prop';
+}
+
+// Small fetch-with-timeout used for adsbdb lookups (keyless, CORS-open, and
+// not Cloudflare-hosted, so Worker fetches pass). Edge-cached a full day.
+async function fetchJson(url, cacheTtl, timeoutMs = 6000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': UA },
+      signal: ctrl.signal,
+      cf: { cacheTtl, cacheEverything: true },
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// adsbdb enrichment: type details by ICAO24 hex, route by callsign.
+async function enrich(aircraft) {
+  const targets = aircraft.filter((a) => !a.on_ground).slice(0, 12);
+  const jobs = targets.map(async (a) => {
+    const d = await fetchJson(`https://api.adsbdb.com/v0/aircraft/${a.hex}`, 86400);
+    const r = d && d.response && d.response.aircraft;
+    if (r) {
+      if (!a.reg && r.registration) a.reg = String(r.registration).trim();
+      if (r.icao_type) a.icao_type = String(r.icao_type).trim();
+      a.type_desc = r.type ? String(r.type).trim() : null;
+      a.manufacturer = r.manufacturer ? String(r.manufacturer).trim() : null;
+      a.owner = r.registered_owner ? String(r.registered_owner).trim() : null;
+    }
+  });
+  // Route lookups only for airline-shaped callsigns, top 8 airborne.
+  const routeTargets = targets
+    .filter((a) => a.callsign && /^[A-Z]{3}\d{1,4}[A-Z]?$/.test(a.callsign))
+    .slice(0, 8);
+  for (const a of routeTargets) {
+    jobs.push(
+      (async () => {
+        const d = await fetchJson(`https://api.adsbdb.com/v0/callsign/${a.callsign}`, 86400);
+        const r = d && d.response && d.response.flightroute;
+        if (r) {
+          a.airline = (r.airline && r.airline.name) || null;
+          a.origin_iata = (r.origin && (r.origin.iata_code || r.origin.iata)) || null;
+          a.dest_iata = (r.destination && (r.destination.iata_code || r.destination.iata)) || null;
+        }
+      })()
+    );
+  }
+  await Promise.allSettled(jobs);
+  for (const a of aircraft) {
+    const t = (a.icao_type || a.type || '').toUpperCase();
+    a.category = silCategory(t);
+    a.wingspan_m = WINGSPAN_M[t] || null;
+  }
+}
+
 export async function onRequestGet(context) {
   const u = new URL(context.request.url);
   const lat = parseFloat(u.searchParams.get('lat'));
@@ -213,6 +306,9 @@ export async function onRequestGet(context) {
       let srcTime = Date.now();
       if (src.id === 'opensky' && num(data.time) != null) srcTime = data.time * 1000;
       else if (num(data.now) != null) srcTime = data.now;
+      // Type, owner, route and sizing for the art views. adsbdb lookups are
+      // edge-cached a day per airframe, so repeat polls cost nothing.
+      await enrich(aircraft);
       return json({
         now: Date.now(),
         src_time: srcTime,

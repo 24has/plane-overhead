@@ -1,7 +1,9 @@
 /* Plane Overhead — client logic
- * Polls our Pages Function (/api/flights) which fails over across
- * airplanes.live -> adsb.fi -> OpenSky, normalised to one shape.
- * Config lives in URL params (shareable) with localStorage fallback.
+ * Two views: radar (scope + list) and overhead plates (field-guide cards of
+ * the actual airframes). Data from /api/flights (positions + adsbdb
+ * enrichment) and /api/photo (planespotters by hex/reg).
+ * Location: follow this device (GPS watch + move-triggered refetch) or a
+ * fixed spot; place name via Nominatim reverse geocode, edge-friendly.
  */
 (() => {
   'use strict';
@@ -12,20 +14,22 @@
   // ---------- config ----------
 
   const DEFAULTS = {
+    mode: 'auto',            // 'auto' = follow device, 'manual' = fixed spot
     lat: -28.8146,
     lon: 153.0114,
-    label: 'Lismore NSW',
+    label: '',
     radius: 60,
     interval: 15,
     units: 'av',
     theme: 'scope',
+    view: 'radar',
     hideGnd: true,
   };
 
   const q = new URLSearchParams(location.search);
   const ls = JSON.parse(localStorage.getItem('po.cfg') || '{}');
   const cfg = { ...DEFAULTS, ...ls };
-  for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'units', 'theme']) {
+  for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'units', 'theme', 'view', 'mode']) {
     const v = q.get(k);
     if (v != null && v !== '') cfg[k] = v;
   }
@@ -58,12 +62,16 @@
   let selectedHex = null;
   let fetchTimer = null;
   const history = new Map(); // hex -> [{x,y,t}]
+  const photoCache = new Map(); // hex -> {found, ...} | 'pending'
+  let gpsLabel = '';
 
   // ---------- elements ----------
 
   const scope = $('scope');
   const listEl = $('list');
   const layers = {};
+
+  // ---------- scope drawing (unchanged from v2) ----------
 
   function buildScope() {
     scope.innerHTML = '';
@@ -106,12 +114,12 @@
       g.appendChild(l);
     }
 
-    for (const [txt, a, cls] of [['N', 0, ''], ['E', 90, ''], ['S', 180, ''], ['W', 270, '']]) {
+    for (const [txt, a] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) {
       const rad = (a * Math.PI) / 180;
       const t = document.createElementNS(svgNS, 'text');
       t.setAttribute('x', Math.sin(rad) * (R + 10));
       t.setAttribute('y', -Math.cos(rad) * (R + 10) + 2.4);
-      t.setAttribute('class', 'rose-lbl ' + cls);
+      t.setAttribute('class', 'rose-lbl');
       t.textContent = txt;
       g.appendChild(t);
     }
@@ -137,7 +145,6 @@
 
   function ringLabels() {
     const frac = [0.25, 0.5, 0.75, 1];
-    const xs = [0, 0, 0, 0];
     const ys = [-25, -50, -75, -100];
     let old = document.getElementById('ringlbls');
     if (old) old.remove();
@@ -158,12 +165,11 @@
     scope.appendChild(g);
   }
 
-  // bearing/dist -> scope coords, north up, edge = radius
-  const xy = (b, d) => {
+  function xyReal(b, d) {
     const rad = (b * Math.PI) / 180;
     const r = (Math.min(d, cfg.radius) / cfg.radius) * 100;
     return [Math.sin(rad) * r, -Math.cos(rad) * r];
-  };
+  }
 
   // ---------- render ----------
 
@@ -176,6 +182,7 @@
     renderList();
     renderHero();
     renderStatus();
+    if (cfg.view === 'overhead') renderPlates();
   }
 
   function visible() {
@@ -192,9 +199,8 @@
     const labelled = new Set(vis.slice(0, 10).map((a) => a.hex));
 
     for (const a of vis) {
-      const [x, y] = xy(a.bearing_deg, a.dist_nm);
+      const [x, y] = xyReal(a.bearing_deg, a.dist_nm);
 
-      // trail
       const h = history.get(a.hex) || [];
       if (h.length > 1) {
         const p = document.createElementNS(svgNS, 'polyline');
@@ -208,7 +214,6 @@
       const cls = a.emergency ? 'ac-mark emerg' : a.on_ground ? 'ac-mark ground' : 'ac-mark';
       const m = document.createElementNS(svgNS, 'path');
       const s = a.emergency ? 4.4 : 3.4;
-      // nose pointing along track
       const rot = `rotate(${((a.track_deg || 0) - 90).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})`;
       m.setAttribute(
         'd',
@@ -275,10 +280,11 @@
         : '<span class="tr-dn trend">&#9660;</span>';
     }
 
-    const metaBits = [a.type, a.reg].filter(Boolean).join(' · ');
+    const route = a.origin_iata && a.dest_iata ? `${a.origin_iata}–${a.dest_iata}` : '';
+    const metaBits = [route, a.icao_type].filter(Boolean).join(' · ');
     li.innerHTML =
       `<span class="cs">${esc(a.callsign || a.hex.toUpperCase())}${a.emergency ? ' <span class="chip emerg">alert</span>' : ''}</span>` +
-      `<span class="meta">${esc(metaBits || '—')}</span>` +
+      `<span class="meta">${esc(metaBits || a.type || '—')}</span>` +
       `<span class="num ${a.on_ground ? 'dim' : ''}">${alt}</span>` +
       `<span class="num">${spd}</span>` +
       `<span class="num">${fmtDist(a.dist_nm)}</span>` +
@@ -298,7 +304,7 @@
   function renderList() {
     const head = $('listHead');
     head.innerHTML =
-      `<span>callsign</span><span>type / reg</span><span>alt ${U.altU}</span>` +
+      `<span>callsign</span><span>route · type</span><span>alt ${U.altU}</span>` +
       `<span>${U.spdU}</span><span>${U.distU}</span><span>&#8597;</span><span>brg</span>`;
 
     listEl.innerHTML = '';
@@ -333,8 +339,8 @@
     else if (pick.alt_ft != null) bits.push(`${U.alt(pick.alt_ft)} ${U.altU}`);
     if (pick.gs_kt != null) bits.push(`${U.spd(pick.gs_kt)} ${U.spdU}`);
     bits.push(`bearing ${compass(pick.bearing_deg)}`);
-    if (pick.type && pick.reg) bits.push(`${pick.type} ${pick.reg}`);
-    else if (pick.type) bits.push(pick.type);
+    if (pick.type_desc) bits.push(pick.type_desc);
+    if (pick.reg) bits.push(pick.reg);
     $('heroSub').innerHTML = bits.map((b) => `<b>${esc(b)}</b>`).join(' · ') || '';
   }
 
@@ -369,6 +375,143 @@
     render();
   }
 
+  // ---------- overhead plates ----------
+
+  const SILS = {
+    jet: 'M2 11.5 L10 3 L18 11.5 L23 12.2 L16.5 13.2 L13.5 20 L11.5 20 L11.5 13.4 L7 13.2 Z',
+    prop: 'M2 12 L9 5 L12 4.5 L12 2.5 M12 2.5 a0.8 0.8 0 1 0 0.01 0 M12 4.5 L15 5 L22 12 L16 12.8 L13 19.5 L11 19.5 L10.5 12.8 L5 12.4 Z',
+    heli: 'M4 13 a8 3.2 0 0 0 16 0 a8 3.2 0 0 0 -16 0 M11.4 13 L12.6 13 L13 6 L11 6 Z M2 6.5 L22 6.5 M6 4.5 L6 8.5 M18 4.5 L18 8.5',
+  };
+
+  function plateCard(a, rank) {
+    const card = document.createElement('article');
+    card.className = 'plate' + (a.emergency ? ' emerg' : '') + (a.hex === selectedHex ? ' sel' : '');
+    card.tabIndex = 0;
+
+    const imgBox = document.createElement('div');
+    imgBox.className = 'plate-img';
+    const rankEl = document.createElement('span');
+    rankEl.className = 'rank';
+    rankEl.textContent = '#' + rank;
+    imgBox.appendChild(rankEl);
+
+    let imgEl = null;
+    const cached = photoCache.get(a.hex);
+    if (cached && cached !== 'pending' && cached.found) {
+      imgEl = document.createElement('img');
+      imgEl.src = cached.thumbnail;
+      imgEl.alt = `${a.reg || a.callsign || a.hex} — photo by ${cached.photographer || 'unknown'}`;
+      imgEl.loading = 'lazy';
+      imgBox.appendChild(imgEl);
+      if (cached.photographer) {
+        const cr = document.createElement('a');
+        cr.className = 'plate-photo-credit';
+        cr.href = cached.link || '#';
+        cr.target = '_blank';
+        cr.rel = 'noopener';
+        cr.textContent = '\u00a9 ' + cached.photographer;
+        imgBox.appendChild(cr);
+      }
+    } else if (!cached || cached === 'pending') {
+      const ph = document.createElement('div');
+      ph.className = 'ph';
+      ph.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.1"><path d="${SILS[a.category] || SILS.prop}"/></svg>`;
+      imgBox.appendChild(ph);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'plate-body';
+    const nameLine = a.callsign || a.hex.toUpperCase();
+    const subBits = [];
+    if (a.reg) subBits.push(a.reg);
+    if (a.type_desc) subBits.push(a.type_desc);
+    else if (a.icao_type) subBits.push(a.icao_type);
+    if (a.origin_iata && a.dest_iata) subBits.push(`${a.origin_iata}\u2013${a.dest_iata}`);
+    else if (a.owner) subBits.push(a.owner);
+    body.innerHTML =
+      `<div class="plate-cs">${esc(nameLine)}</div>` +
+      `<p class="plate-sub">${esc(subBits.join(' \u00b7 ') || '\u2014')}</p>`;
+
+    const stats = document.createElement('div');
+    stats.className = 'plate-stats';
+    stats.innerHTML =
+      `<div><b>${a.on_ground ? 'GND' : a.alt_ft == null ? '\u2014' : U.alt(a.alt_ft)}</b><span class="u">${U.altU}</span></div>` +
+      `<div><b>${a.gs_kt == null ? '\u2014' : U.spd(a.gs_kt)}</b><span class="u">${U.spdU}</span></div>` +
+      `<div><b>${fmtDist(a.dist_nm)}</b><span class="u">${U.distU} away</span></div>`;
+
+    card.appendChild(imgBox);
+    card.appendChild(body);
+    card.appendChild(stats);
+    card.addEventListener('click', () => select(a.hex));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        select(a.hex);
+      }
+    });
+    return card;
+  }
+
+  function renderPlates() {
+    const wrap = $('plates');
+    wrap.innerHTML = '';
+    const vis = visible();
+    const titled = $('ohTitle');
+    const sub = $('ohSub');
+    if (!vis.length) {
+      titled.textContent = 'Overhead';
+      sub.textContent = 'nothing airborne within reach right now';
+      const e = document.createElement('p');
+      e.className = 'oh-empty';
+      e.textContent = 'When something passes, it will appear here as a plate.';
+      wrap.appendChild(e);
+    } else {
+      const placeName = cfg.label || gpsLabel || 'here';
+      titled.textContent = `Overhead ${placeName}`;
+      sub.textContent = `${vis.length} airborne \u00b7 nearest ${fmtDist(vis[0].dist_nm)} ${U.distU}`;
+      vis.forEach((a, i) => wrap.appendChild(plateCard(a, i + 1)));
+    }
+    // status line for the plates view
+    const st = $('ohStatus');
+    if (lastGood) {
+      const ageS = Math.max(0, Math.round((Date.now() - lastGood.t) / 1000));
+      st.innerHTML = `<span class="chip">${esc(lastGood.source)}</span> <span>${visible().length} of ${aircraft.length} in range \u00b7 updated ${ageS}s ago</span>`;
+    } else if (lastErr) {
+      st.innerHTML = '<span class="chip dim">offline</span>';
+    } else {
+      st.innerHTML = '<span class="chip dim">connecting</span>';
+    }
+  }
+
+  // Photos are fetched per-aircraft after each successful poll, only for
+  // aircraft visible in the plates view (max 12), deduped by photoCache.
+  async function loadPhotos() {
+    if (cfg.view !== 'overhead') return;
+    const vis = visible().slice(0, 12);
+    const jobs = vis
+      .filter((a) => !photoCache.has(a.hex))
+      .map(async (a) => {
+        photoCache.set(a.hex, 'pending');
+        try {
+          const p = new URLSearchParams();
+          if (a.hex) p.set('hex', a.hex);
+          if (a.reg) p.set('reg', a.reg);
+          const r = await fetch(`/api/photo?${p}`, { cache: 'no-store' });
+          if (!r.ok) throw new Error('photo api ' + r.status);
+          const d = await r.json();
+          photoCache.set(a.hex, d);
+          return d;
+        } catch {
+          photoCache.set(a.hex, { found: false });
+          return null;
+        }
+      });
+    if (jobs.length) {
+      await Promise.allSettled(jobs);
+      renderPlates();
+    }
+  }
+
   // ---------- helpers ----------
 
   function esc(s) {
@@ -380,7 +523,79 @@
   function compass(brg) {
     if (brg == null) return '—';
     const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    return dirs[Math.round(brg / 45) % 8] + ' ' + brg.toFixed(0) + '°';
+    return dirs[Math.round(brg / 45) % 8] + ' ' + brg.toFixed(0) + '\u00b0';
+  }
+
+  // ---------- location: follow me ----------
+
+  let geoWatchId = null;
+
+  function haversineNm(a, b) {
+    const R = 3440.065;
+    const r = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * r;
+    const dLon = (b.lon - a.lon) * r;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(x));
+  }
+
+  function startGeoWatch() {
+    if (!('geolocation' in navigator)) return;
+    if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
+    geoWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const c = pos.coords;
+        const moved = haversineNm({ lat: cfg.lat, lon: cfg.lon }, { lat: c.latitude, lon: c.longitude });
+        cfg.lat = c.latitude;
+        cfg.lon = c.longitude;
+        save();
+        if (moved > 2) {
+          history.clear();
+          photoCache.clear();
+          tick();
+        }
+        updateLocLabel();
+        reverseGeocode(c.latitude, c.longitude);
+      },
+      () => {
+        gpsLabel = 'gps unavailable \u2014 using last spot';
+        updateLocLabel();
+      },
+      { enableHighAccuracy: false, maximumAge: 30000, timeout: 20000 }
+    );
+  }
+
+  function stopGeoWatch() {
+    if (geoWatchId != null) {
+      navigator.geolocation.clearWatch(geoWatchId);
+      geoWatchId = null;
+    }
+  }
+
+  async function reverseGeocode(lat, lon) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&lat=${lat}&lon=${lon}`;
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) return;
+      const d = await r.json();
+      const a = d.address || {};
+      const name =
+        a.city || a.town || a.village || a.suburb || a.hamlet || a.county || a.state || '';
+      const region = a.state || a.region || '';
+      gpsLabel = [name, region].filter(Boolean).join(' ');
+      if (gpsLabel) updateLocLabel();
+    } catch {
+      /* keep the coordinates as the label */
+    }
+  }
+
+  function updateLocLabel() {
+    const mode = cfg.mode === 'auto' ? 'following you \u00b7 ' : '';
+    const place = cfg.label || gpsLabel || '';
+    const coords = `${cfg.lat.toFixed(3)}, ${cfg.lon.toFixed(3)}`;
+    $('locLabel').textContent = `${mode}${place ? place + ' \u00b7 ' : ''}${coords} \u00b7 ${cfg.radius} nm`;
   }
 
   // ---------- data ----------
@@ -398,24 +613,24 @@
       lastGood = { t: Date.now(), source: d.source };
       lastErr = null;
 
-      // sweep the scanline once per update
       const sl = $('scanline');
       sl.classList.remove('sweep');
       void sl.offsetWidth;
       sl.classList.add('sweep');
 
-      // prune + update history for trails
       const now = Date.now();
       const seen = new Set();
       for (const a of aircraft) {
         seen.add(a.hex);
         const h = history.get(a.hex) || [];
-        const [x, y] = xy(a.bearing_deg, a.dist_nm);
+        const [x, y] = xyReal(a.bearing_deg, a.dist_nm);
         h.push({ x, y, t: now });
         if (h.length > 6) h.shift();
         history.set(a.hex, h);
       }
       for (const k of history.keys()) if (!seen.has(k)) history.delete(k);
+
+      loadPhotos();
     } catch (e) {
       lastErr = (e && e.message) || String(e);
     }
@@ -437,13 +652,33 @@
       .toUpperCase();
   }
 
-  // ---------- theme / fullscreen ----------
+  // ---------- theme / view / fullscreen ----------
 
   function applyTheme() {
     $('app').dataset.theme = cfg.theme;
     $('themeColorMeta').content = cfg.theme === 'scope' ? '#0a0f0c' : '#f2efe6';
     save();
   }
+
+  function applyView() {
+    const radar = $('viewRadar');
+    const oh = $('viewOverhead');
+    if (cfg.view === 'overhead') {
+      radar.hidden = true;
+      oh.hidden = false;
+      renderPlates();
+      loadPhotos();
+    } else {
+      radar.hidden = false;
+      oh.hidden = true;
+    }
+    save();
+  }
+
+  $('btnView').addEventListener('click', () => {
+    cfg.view = cfg.view === 'overhead' ? 'radar' : 'overhead';
+    applyView();
+  });
 
   $('btnTheme').addEventListener('click', () => {
     cfg.theme = cfg.theme === 'scope' ? 'paper' : 'scope';
@@ -459,6 +694,23 @@
 
   const dlg = $('cfg');
 
+  function setSegBtns() {
+    $('modeAuto').classList.toggle('on', cfg.mode === 'auto');
+    $('modeManual').classList.toggle('on', cfg.mode === 'manual');
+    $('cLat').disabled = $('cLon').disabled = $('cLabel').disabled = cfg.mode === 'auto';
+  }
+
+  $('modeAuto').addEventListener('click', () => {
+    cfg.mode = 'auto';
+    setSegBtns();
+    $('cNote').textContent = 'Following this device. Fields disabled; GPS sets them.';
+  });
+  $('modeManual').addEventListener('click', () => {
+    cfg.mode = 'manual';
+    setSegBtns();
+    $('cNote').textContent = 'Fixed spot: type coordinates, or press Locate now once.';
+  });
+
   function openCfg() {
     $('cLat').value = cfg.lat;
     $('cLon').value = cfg.lon;
@@ -469,6 +721,7 @@
     $('cTheme').value = cfg.theme;
     $('cHideGnd').checked = cfg.hideGnd;
     $('cNote').textContent = '';
+    setSegBtns();
     dlg.showModal();
   }
 
@@ -479,12 +732,12 @@
       $('cNote').textContent = 'This browser has no geolocation.';
       return;
     }
-    $('cNote').textContent = 'Locating…';
+    $('cNote').textContent = 'Locating\u2026';
     navigator.geolocation.getCurrentPosition(
       (p) => {
         $('cLat').value = p.coords.latitude.toFixed(4);
         $('cLon').value = p.coords.longitude.toFixed(4);
-        $('cNote').textContent = 'GPS fix applied — press Done.';
+        $('cNote').textContent = 'GPS fix applied \u2014 press Done.';
       },
       (e) => {
         $('cNote').textContent = 'GPS unavailable (' + e.message + '). Type coordinates instead.';
@@ -495,49 +748,55 @@
 
   $('cShare').addEventListener('click', async () => {
     const u = new URL(location.href.split('?')[0]);
-    u.searchParams.set('lat', cfg.lat);
-    u.searchParams.set('lon', cfg.lon);
-    if (cfg.label) u.searchParams.set('label', cfg.label);
+    if (cfg.mode === 'manual') {
+      u.searchParams.set('lat', cfg.lat);
+      u.searchParams.set('lon', cfg.lon);
+      if (cfg.label) u.searchParams.set('label', cfg.label);
+    } else {
+      u.searchParams.set('mode', 'auto');
+    }
     u.searchParams.set('radius', cfg.radius);
     u.searchParams.set('interval', cfg.interval);
     u.searchParams.set('units', cfg.units);
     u.searchParams.set('theme', cfg.theme);
+    u.searchParams.set('view', cfg.view);
     u.searchParams.set('gnd', cfg.hideGnd ? '1' : '0');
     try {
       await navigator.clipboard.writeText(u.toString());
       $('cNote').textContent = 'Link copied to clipboard.';
     } catch {
-      $('cNote').textContent = 'Copy failed — URL is: ' + u.toString();
+      $('cNote').textContent = 'Copy failed \u2014 URL is: ' + u.toString();
     }
   });
 
   dlg.addEventListener('close', () => {
     if (dlg.returnValue !== 'save') return;
-    const lat = parseFloat($('cLat').value);
-    const lon = parseFloat($('cLon').value);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    cfg.lat = lat;
-    cfg.lon = lon;
-    cfg.label = $('cLabel').value.trim();
     cfg.radius = +$('cRadius').value;
     cfg.interval = +$('cInterval').value;
     cfg.units = $('cUnits').value;
     cfg.theme = $('cTheme').value;
     cfg.hideGnd = $('cHideGnd').checked;
+    if (cfg.mode === 'manual') {
+      const lat = parseFloat($('cLat').value);
+      const lon = parseFloat($('cLon').value);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        cfg.lat = lat;
+        cfg.lon = lon;
+        cfg.label = $('cLabel').value.trim();
+      }
+    }
     save();
     applyTheme();
-    $('locLabel').textContent = locText();
+    if (cfg.mode === 'auto') startGeoWatch();
+    else stopGeoWatch();
     history.clear();
-    selectedHex = null;
+    photoCache.clear();
+    updateLocLabel();
     tick();
     schedule();
   });
 
-  function locText() {
-    return `${cfg.label ? cfg.label + ' · ' : ''}${cfg.lat.toFixed(3)}, ${cfg.lon.toFixed(3)} · ${cfg.radius} nm`;
-  }
-
-  // ---------- wake lock (keep the wall tablet on) ----------
+  // ---------- wake lock ----------
 
   let wakeLock = null;
   async function keepAwake() {
@@ -559,12 +818,29 @@
   // ---------- boot ----------
 
   applyTheme();
-  $('locLabel').textContent = locText();
+  applyView();
+  updateLocLabel();
   buildScope();
   clock();
   setInterval(clock, 5000);
   render();
-  tick();
+  if (cfg.mode === 'auto') {
+    startGeoWatch();
+    navigator.geolocation?.getCurrentPosition(
+      (p) => {
+        cfg.lat = p.coords.latitude;
+        cfg.lon = p.coords.longitude;
+        save();
+        updateLocLabel();
+        reverseGeocode(cfg.lat, cfg.lon);
+        tick();
+      },
+      () => tick(),
+      { enableHighAccuracy: false, timeout: 15000 }
+    );
+  } else {
+    tick();
+  }
   schedule();
   keepAwake();
 })();
