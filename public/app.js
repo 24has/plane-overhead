@@ -67,9 +67,15 @@
 
   function buildScope() {
     scope.innerHTML = '';
+    const layerClass = {
+      rings: 'layer-rings',
+      trails: 'layer-trails',
+      marks: 'layer-marks',
+      labels: 'layer-labels',
+    };
     for (const name of ['rings', 'trails', 'marks', 'labels']) {
       const g = document.createElementNS(svgNS, 'g');
-      g.setAttribute('class', name.slice(0, -1)); // ring/trail/mark/label
+      g.setAttribute('class', layerClass[name]);
       if (name === 'labels') g.setAttribute('id', 'labels');
       scope.appendChild(g);
       layers[name] = g;
