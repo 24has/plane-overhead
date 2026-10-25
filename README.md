@@ -1,6 +1,6 @@
 # Overhead — the aircraft above you as a print
 
-An artwork-only wall display for an Android tablet: one aircraft at a time as a print, or everything in reach on one Cluster page. No map, no radar, no table. Paintings are AI-generated in an arty style (not raw photos), cached so each airframe/style is only ever generated once.
+An artwork-only wall display for an Android tablet: everything in reach on one packed Cluster sheet by default, or one aircraft at a time as a plate. No map, no radar, no table. Paintings are AI-generated in an arty style (not raw photos), cached so each airframe/style is only ever generated once.
 
 - Production: <https://plane-overhead.pages.dev>
 - Repo: <https://github.com/24has/plane-overhead>
@@ -19,9 +19,9 @@ Cloudflare Pages Function  functions/api/flights.js
   │  GET /api/paint?...            (Workers AI painting, KV-cached)
   ▼
 Plate shows the painting; strip shows paintings or outlines while pending.
-The grid button (top right) switches to the Cluster page: up to ten aircraft
-in reach, each painting sized by wingspan (largest first), click any card to
-open its plate.
+The grid button (top right) switches between the Cluster sheet (default: up to ten aircraft
+in reach, spiral-packed largest-first, each painting sized by wingspan, click any card to
+open its plate) and the single plate with its filmstrip.
 ```
 
 Paintings are text-to-image interpretations conditioned on the airframe (type, registration/callsign, airline livery). The plate uses the `poster` style; the Cluster page uses a separate `cutout` style (aircraft isolated on plain paper, no scenery) so the page reads as a specimen sheet. Both are cached per style and never regenerated. Storage key:
