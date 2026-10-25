@@ -215,6 +215,77 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 
 #btnCfg { right: 14px; }
 #btnNext { right: 64px; }
+#btnView { right: 114px; }
+
+/* ---------- cluster (all in reach, sized by wingspan) ---------- */
+
+.cluster {
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding-bottom: 8vh;
+}
+
+.cluster-head { text-align: center; padding: 2vh 4vw 0; }
+
+.cluster-title {
+  margin: 0;
+  font-family: var(--font-sc);
+  font-size: clamp(22px, 4vmin, 38px);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.cluster-sub {
+  margin: 2px 0 0;
+  font-style: italic;
+  font-size: clamp(11px, 1.8vmin, 15px);
+  color: var(--ink-soft);
+}
+
+.cluster-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(10px, 2vmin, 20px);
+  align-items: flex-end;
+  justify-content: center;
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: clamp(8px, 2vmin, 18px) 4vw 4vh;
+}
+
+.cluster-card {
+  border: 1.5px solid var(--ink);
+  outline: 1px solid var(--rule-strong);
+  outline-offset: -5px;
+  background: var(--paper);
+  padding: 8px 8px 6px;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.cluster-card:hover { border-color: var(--accent); }
+
+.cluster-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  filter: sepia(.14) contrast(.96) brightness(1.02) saturate(.82);
+}
+
+.cluster-card .c-sil {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+}
+.cluster-card .c-sil svg { width: 45%; opacity: .5; }
+
+.cluster-cap { padding: 6px 2px 0; text-align: center; }
+.cluster-cap .cc-cs { font: 700 13px var(--font-mono); letter-spacing: .03em; }
+.cluster-cap .cc-sub { font-size: 10.5px; color: var(--ink-soft); font-style: italic; margin-top: 1px; }
 
 /* ---------- error banner ---------- */
 

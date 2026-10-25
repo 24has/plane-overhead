@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="app">
@@ -35,6 +35,14 @@
 
     <aside class="strip" id="strip" aria-label="Aircraft in reach"></aside>
 
+  </main>
+
+  <main id="clusterView" class="cluster" hidden>
+    <div class="cluster-head">
+      <p class="cluster-title" id="cTitle">Overhead</p>
+      <p class="cluster-sub" id="cSub">&nbsp;</p>
+    </div>
+    <div class="cluster-grid" id="clusterGrid"></div>
   </main>
 
   <div id="errban" class="errban" hidden></div>
@@ -83,6 +91,9 @@
     </form>
   </dialog>
 
+  <button id="btnView" class="fab view" aria-label="Switch view" title="Plate / cluster">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+  </button>
   <button id="btnCfg" class="fab" aria-label="Setup">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
   </button>
@@ -91,6 +102,6 @@
   </button>
 
 </div>
-<script src="app.js?v=6" defer></script>
+<script src="app.js?v=7" defer></script>
 </body>
 </html>

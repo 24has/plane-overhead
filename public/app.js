@@ -17,6 +17,7 @@
     radius: 40,
     interval: 20,        // data poll (s)
     rotate: 45,          // plate rotation (s), 0 = off
+    view: 'plate',       // 'plate' | 'cluster'
     hideGnd: true,
   };
 
@@ -25,7 +26,7 @@
   const q = new URLSearchParams(location.search);
   const ls = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
   const cfg = { ...DEFAULTS, ...ls };
-  for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'rotate', 'mode']) {
+  for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'rotate', 'mode', 'view']) {
     const v = q.get(k);
     if (v != null && v !== '') cfg[k] = v;
   }
@@ -164,7 +165,7 @@
   // Kick off paintings for the aircraft on screen. Photo lookup comes first
   // so the cache key can pin the exact source airframe photograph.
   function primePaints() {
-    visible().slice(0, 8).forEach((a) => {
+    visible().slice(0, 10).forEach((a) => {
       getPhoto(a).then((photo) => {
         if (photo && photo.found) getPaint(a, photo).then(() => render());
       }).catch(() => {});
@@ -241,8 +242,12 @@
 
   function render() {
     pickCurrent();
-    renderPlate();
-    renderStrip();
+    if (cfg.view === 'cluster') {
+      renderCluster();
+    } else {
+      renderPlate();
+      renderStrip();
+    }
     renderErrban();
   }
 
@@ -371,7 +376,93 @@
       return;
     }
     vis.slice(0, 14).forEach((a) => wrap.appendChild(stripThumb(a)));
-    $('btnNext').hidden = vis.length < 2 || (cfg.rotate > 0 && !pinnedHex);
+    $('btnNext').hidden = vis.length < 2 || (cfg.rotate > 0 && !pinnedHex) || cfg.view === 'cluster';
+  }
+
+  // ---------- cluster: everything in reach, sized by wingspan ----------
+
+  const CLUSTER_MAX = 10;
+
+  function spanFor(a) {
+    if (a.wingspan_m) return a.wingspan_m;
+    if (a.category === 'heli') return 13;
+    if (a.category === 'prop') return 12;
+    return 32; // jet-ish default
+  }
+
+  function renderCluster() {
+    const grid = $('clusterGrid');
+    grid.innerHTML = '';
+    const vis = visible().slice(0, CLUSTER_MAX);
+    const place = cfg.label || gpsLabel || '';
+    if (!vis.length) {
+      $('cTitle').textContent = 'Overhead';
+      $('cSub').textContent = hasData ? 'nothing in reach right now' : 'listening for the sky';
+      const e = document.createElement('p');
+      e.className = 'oh-empty';
+      e.textContent = 'When something passes, it will appear here.';
+      grid.appendChild(e);
+    } else {
+      $('cTitle').textContent = `Overhead ${place}`.trim();
+      const spans = vis.map(spanFor);
+      const lo = Math.min(...spans);
+      const hi = Math.max(...spans);
+      $('cSub').textContent = `${vis.length} in reach \u00b7 sized by wingspan`;
+      const ordered = vis
+        .map((a, i) => ({ a, ws: spans[i] }))
+        .sort((x, y) => y.ws - x.ws);
+      for (const { a, ws } of ordered) {
+        const card = document.createElement('article');
+        card.className = 'cluster-card';
+        const w = Math.round(150 + ((ws - lo) / (hi - lo || 1)) * 230);
+        card.style.width = `${w}px`;
+        card.title = `${a.callsign || a.hex} \u00b7 ${ws}m span`;
+        const paint = paintCache.get(a.hex);
+        if (paint && paint !== 'pending' && paint.status === 'ready') {
+          const img = document.createElement('img');
+          img.src = paint.url;
+          img.alt = a.callsign || a.hex;
+          img.loading = 'lazy';
+          card.appendChild(img);
+        } else {
+          const sil = document.createElement('div');
+          sil.className = 'c-sil';
+          sil.innerHTML = silSvg(a.category);
+          card.appendChild(sil);
+          const photo = photoCache.get(a.hex);
+          if (photo === 'pending' || paint === 'pending') {
+            getPhoto(a).then((p) => {
+              if (p && p.found) getPaint(a, p).then(() => render());
+            }).catch(() => {});
+          } else if (photo && photo.found && paint !== 'failed') {
+            getPaint(a, photo).then(() => render());
+          }
+        }
+        const cap = document.createElement('div');
+        cap.className = 'cluster-cap';
+        const sub = a.reg || a.type_desc || a.icao_type || '';
+        cap.innerHTML =
+          `<div class="cc-cs">${esc(a.callsign || a.hex.toUpperCase())}</div>` +
+          (sub ? `<div class="cc-sub">${esc(sub)}</div>` : '');
+        card.appendChild(cap);
+        card.addEventListener('click', () => {
+          pinnedHex = a.hex;
+          setView('plate');
+          render();
+        });
+        grid.appendChild(card);
+      }
+    }
+    $('btnNext').hidden = true;
+  }
+
+  function setView(v) {
+    cfg.view = v === 'cluster' ? 'cluster' : 'plate';
+    $('plateView').hidden = cfg.view !== 'plate';
+    $('clusterView').hidden = cfg.view !== 'cluster';
+    $('btnView').setAttribute('aria-label', cfg.view === 'cluster' ? 'Switch to plate' : 'Switch to cluster');
+    save();
+    if (cfg.view === 'cluster') primePaints();
   }
 
   function renderErrban() {
@@ -476,6 +567,10 @@
 
   $('btnCfg').addEventListener('click', openCfg);
   $('btnNext').addEventListener('click', nextPlate);
+  $('btnView').addEventListener('click', () => {
+    setView(cfg.view === 'cluster' ? 'plate' : 'cluster');
+    render();
+  });
 
   $('cGps').addEventListener('click', () => {
     if (!navigator.geolocation) {
@@ -507,6 +602,7 @@
     }
     u.searchParams.set('radius', cfg.radius);
     u.searchParams.set('rotate', cfg.rotate);
+    u.searchParams.set('view', cfg.view);
     u.searchParams.set('gnd', cfg.hideGnd ? '1' : '0');
     try {
       await navigator.clipboard.writeText(u.toString());
@@ -557,6 +653,8 @@
 
   // ---------- boot ----------
 
+  if (cfg.view !== 'cluster' && cfg.view !== 'plate') cfg.view = 'plate';
+  setView(cfg.view);
   render();
   tick();
   fetchTimer = setInterval(tick, cfg.interval * 1000);
