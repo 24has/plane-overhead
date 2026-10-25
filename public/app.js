@@ -7,6 +7,23 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // Surface boot/render faults on the page itself: a kiosk has no devtools.
+  const bootErrors = [];
+  function showBootErrors() {
+    const el = $('errban');
+    if (!el || !bootErrors.length) return;
+    el.hidden = false;
+    el.textContent = 'Page error: ' + bootErrors.slice(-2).join(' / ');
+  }
+  window.addEventListener('error', (e) => {
+    bootErrors.push(String((e && e.message) || e));
+    showBootErrors();
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    bootErrors.push('async: ' + String(((e && e.reason && e.reason.message) || e.reason || e)));
+    showBootErrors();
+  });
+
   // ---------- config ----------
 
   const DEFAULTS = {
@@ -43,6 +60,7 @@
 
   let aircraft = [];
   let lastErr = null;
+  let lastGoodAt = 0;
   let hasData = false;
   let currentHex = null;     // the aircraft on the plate
   let pinnedHex = null;      // user-picked via strip; sticky across polls
@@ -188,6 +206,7 @@
       if (d.error) throw new Error(d.error);
       aircraft = d.aircraft || [];
       lastErr = null;
+      lastGoodAt = Date.now();
       hasData = true;
       primePhotos();
       primePaints();
@@ -249,6 +268,7 @@
       renderStrip();
     }
     renderErrban();
+    renderDiag();
   }
 
   function particularsLine(a) {
@@ -467,12 +487,32 @@
 
   function renderErrban() {
     const ban = $('errban');
+    if (bootErrors.length) {
+      ban.hidden = false;
+      ban.textContent = 'Page error: ' + bootErrors.slice(-2).join(' / ');
+      return;
+    }
     if (lastErr) {
       ban.hidden = false;
       ban.textContent = `Feed unreachable \u2014 retrying. ${lastErr}`;
     } else {
       ban.hidden = true;
     }
+  }
+
+  function renderDiag() {
+    const el = $('diag');
+    if (!el) return;
+    el.hidden = false;
+    const age = lastGoodAt ? Math.max(0, Math.round((Date.now() - lastGoodAt) / 1000)) + 's ago' : 'never';
+    const cur = visible().find((x) => x.hex === currentHex);
+    const paint = cur ? paintCache.get(cur.hex) : null;
+    const paintState = !cur ? 'no plate' : paint === 'pending' ? 'painting' : paint && paint.status === 'ready' ? 'painted' : 'no paint';
+    el.textContent =
+      `view ${cfg.view} \u00b7 ${cfg.lat.toFixed(3)},${cfg.lon.toFixed(3)} r${cfg.radius}nm` +
+      ` \u00b7 ${aircraft.length} tracked/${visible().length} shown \u00b7 poll ${age}` +
+      ` \u00b7 ${cur ? (cur.callsign || cur.hex) + ' ' + paintState : paintState}` +
+      (lastErr ? ` \u00b7 ERR ${lastErr}` : '');
   }
 
   // ---------- location: follow me ----------

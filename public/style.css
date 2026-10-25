@@ -217,6 +217,23 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 #btnNext { right: 64px; }
 #btnView { right: 114px; }
 
+.diag {
+  position: fixed;
+  left: 10px; bottom: 8px;
+  z-index: 40;
+  max-width: 92vw;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px dashed var(--rule-strong);
+  border-radius: 4px;
+  padding: 4px 8px;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
 /* ---------- cluster (all in reach, sized by wingspan) ---------- */
 
 .cluster {
