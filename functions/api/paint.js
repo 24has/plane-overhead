@@ -44,11 +44,11 @@ const STYLES = {
       `no photograph, no watermark, no text`,
   },
   cutout: {
-    version: 'v2',
+    version: 'v3',
     model: '@cf/black-forest-labs/flux-1-schnell',
     steps: 4,
     prompt: (a) =>
-      `Clean side-profile illustration of ${a.subject} in flight with landing gear retracted, ${a.livery}, ` +
+      `Clean side-profile illustration of ${a.subject} cruising in flight in clean aerodynamic configuration with no landing gear visible and smooth unbroken belly, ${a.livery}, ` +
       `perfectly isolated on a plain pure white background, no sky, ` +
       `no clouds, no ground, no scenery, vintage natural-history plate style ` +
       `with a fine ink outline, no photograph, no watermark, no text, ` +
