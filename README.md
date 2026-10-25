@@ -24,7 +24,7 @@ in reach, each painting sized by wingspan (largest first), click any card to
 open its plate.
 ```
 
-Paintings are text-to-image interpretations conditioned on the airframe (type, registration/callsign, airline livery), in a locked `poster` style. They are not pixel repaints of the photograph. Storage key:
+Paintings are text-to-image interpretations conditioned on the airframe (type, registration/callsign, airline livery). The plate uses the `poster` style; the Cluster page uses a separate `cutout` style (aircraft isolated on plain paper, no scenery) so the page reads as a specimen sheet. Both are cached per style and never regenerated. Storage key:
 
 `paint/{style}/{style-version}/{hex}/{photo_id or nophoto}.jpg`
 
