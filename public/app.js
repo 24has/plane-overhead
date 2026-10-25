@@ -94,7 +94,7 @@
   // ---------- helpers ----------
 
   const esc = (s) =>
-    String(s ?? '').replace(/[&<>"']/g, (c) =>
+    String(s != null ? s : '').replace(/[&<>"']/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const fmt = (n, d = 1) => (n == null ? '\u2014' : (+n).toFixed(d));
