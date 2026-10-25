@@ -50,6 +50,9 @@
   let rotateTimer = null;
   const photoCache = new Map(); // hex -> photo record | 'pending'
   const photoWaiters = new Map(); // hex -> [resolve]
+  const paintCache = new Map(); // hex -> 'pending' | { status: 'ready', url } | { status: 'failed' }
+  const paintWaiters = new Map(); // hex -> [resolve]
+  const PAINT_STYLE = 'poster';
   let gpsLabel = '';
 
   // ---------- helpers ----------
@@ -118,6 +121,56 @@
     });
   }
 
+  function paintUrl(a, photo) {
+    const p = new URLSearchParams();
+    p.set('hex', a.hex);
+    p.set('style', PAINT_STYLE);
+    if (photo && photo.photo_id) p.set('photo_id', String(photo.photo_id));
+    if (a.reg) p.set('reg', a.reg);
+    if (a.callsign) p.set('callsign', a.callsign);
+    if (a.type_desc) p.set('type_desc', a.type_desc);
+    if (a.icao_type) p.set('icao_type', a.icao_type);
+    if (a.airline) p.set('airline', a.airline);
+    if (a.category) p.set('category', a.category);
+    return `/api/paint?${p}`;
+  }
+
+  async function getPaint(a, photo) {
+    if (paintCache.has(a.hex)) {
+      const c = paintCache.get(a.hex);
+      if (c !== 'pending') return c;
+      await new Promise((res) => {
+        const w = paintWaiters.get(a.hex) || [];
+        w.push(res);
+        paintWaiters.set(a.hex, w);
+      });
+      return paintCache.get(a.hex);
+    }
+    paintCache.set(a.hex, 'pending');
+    let out = { status: 'failed' };
+    try {
+      const r = await fetch(paintUrl(a, photo), { cache: 'force-cache' });
+      if (r.ok) out = { status: 'ready', url: paintUrl(a, photo) };
+    } catch { /* offline */ }
+    paintCache.set(a.hex, out);
+    const w = paintWaiters.get(a.hex);
+    if (w) {
+      paintWaiters.delete(a.hex);
+      w.forEach((res) => res());
+    }
+    return out;
+  }
+
+  // Kick off paintings for the aircraft on screen. Photo lookup comes first
+  // so the cache key can pin the exact source airframe photograph.
+  function primePaints() {
+    visible().slice(0, 8).forEach((a) => {
+      getPhoto(a).then((photo) => {
+        if (photo && photo.found) getPaint(a, photo).then(() => render());
+      }).catch(() => {});
+    });
+  }
+
   // ---------- data ----------
 
   function visible() {
@@ -136,6 +189,7 @@
       lastErr = null;
       hasData = true;
       primePhotos();
+      primePaints();
     } catch (e) {
       lastErr = (e && e.message) || String(e);
     }
@@ -237,14 +291,17 @@
     $('pParticulars').innerHTML = particularsLine(a);
 
     const photo = photoCache.get(a.hex);
-    if (photo && photo !== 'pending' && photo.found) {
-      $('pCredit').innerHTML =
-        `Photograph \u00a9 <a href="${esc(photo.link)}" target="_blank" rel="noopener">${esc(photo.photographer || 'planespotters.net')}</a> \u00b7 planespotters.net`;
+    const paint = paintCache.get(a.hex);
+    if (paint && paint !== 'pending' && paint.status === 'ready') {
+      const ref = photo && photo !== 'pending' && photo.found && photo.photographer
+        ? ` \u00b7 after a photograph \u00a9 ${esc(photo.photographer)}`
+        : '';
+      $('pCredit').innerHTML = `AI painting \u00b7 Cloudflare Workers AI${ref}`;
       imgBox.querySelectorAll('img').forEach((i) => i.remove());
       phEl.hidden = true;
       const img = document.createElement('img');
-      img.src = photo.thumbnail;
-      img.alt = `${a.reg || name}`;
+      img.src = paint.url;
+      img.alt = `${a.reg || name} \u2014 AI painting`;
       img.className = 'fade-in';
       imgBox.appendChild(img);
     } else {
@@ -252,11 +309,13 @@
       imgBox.querySelectorAll('img').forEach((i) => i.remove());
       phEl.hidden = false;
       phEl.innerHTML =
-        (photo === 'pending'
-          ? `<span class="ph-line">finding its photograph\u2026</span>`
-          : `${silSvg(a.category)}<span class="ph-line">no photograph on record</span>`);
+        (photo === 'pending' || paint === 'pending'
+          ? `<span class="ph-line">painting this aircraft\u2026</span>`
+          : `${silSvg(a.category)}<span class="ph-line">painting paused \u2014 showing outline</span>`);
       if (photo === 'pending') {
         getPhoto(a).then(() => render());
+      } else if (photo && photo.found && paint !== 'failed') {
+        getPaint(a, photo).then(() => render());
       }
     }
 
@@ -269,10 +328,10 @@
     const el = document.createElement('button');
     el.className = 's' + (a.hex === currentHex ? ' on' : '');
     el.title = a.callsign || a.hex;
-    const photo = photoCache.get(a.hex);
-    if (photo && photo !== 'pending' && photo.found) {
+    const paint = paintCache.get(a.hex);
+    if (paint && paint !== 'pending' && paint.status === 'ready') {
       const img = document.createElement('img');
-      img.src = photo.thumbnail;
+      img.src = paint.url;
       img.alt = a.callsign || a.hex;
       el.appendChild(img);
     } else {
@@ -280,6 +339,12 @@
       sil.className = 's-sil';
       sil.innerHTML = silSvg(a.category);
       el.appendChild(sil);
+      const photo = photoCache.get(a.hex);
+      if (photo === 'pending' || paint === 'pending') {
+        getPhoto(a).then((p) => {
+          if (p && p.found) getPaint(a, p).then(() => render());
+        }).catch(() => {});
+      }
     }
     const cs = document.createElement('span');
     cs.className = 's-cs';

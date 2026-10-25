@@ -1,3 +1,10 @@
 name = "plane-overhead"
 compatibility_date = "2026-10-01"
 pages_build_output_dir = "public"
+
+[[kv_namespaces]]
+binding = "ART_KV"
+id = "d7594b22d59a4e279ffbd50df9eac89b"
+
+[ai]
+binding = "AI"
