@@ -262,7 +262,7 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 .cluster-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: clamp(18px, 3.5vmin, 34px) clamp(14px, 2.5vmin, 26px);
+  gap: clamp(14px, 2.5vmin, 24px) clamp(10px, 2vmin, 20px);
   align-items: flex-end;
   justify-content: center;
   width: min(100%, 1200px);
@@ -284,6 +284,9 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
   width: 100%;
   height: auto;
   border: 0;
+  /* White painting backgrounds drop out against the cream page,
+     so cut-outs blend into the paper like a printed plate. */
+  mix-blend-mode: multiply;
 }
 
 .cluster-card .c-sil {
