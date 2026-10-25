@@ -116,6 +116,59 @@
   const silSvg = (cat) =>
     `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none">${SILS[cat] || SILS.prop}</svg>`;
 
+  // True cut-outs: flood-fill the near-white background from the image
+  // edges to transparent. Edge-fill (not a global white key) so the
+  // aircraft's own white paint is never eaten. Runs once per painting;
+  // the source painting itself is already cached server-side.
+  const keyCache = new Map(); // paint url -> Promise<string>
+  function floodKey(id, w, h) {
+    const d = id.data;
+    const isBg = (i) => d[i] > 232 && d[i + 1] > 232 && d[i + 2] > 232;
+    const seen = new Uint8Array(w * h);
+    const stack = [];
+    for (let x = 0; x < w; x++) { stack.push(x); stack.push((h - 1) * w + x); }
+    for (let y = 0; y < h; y++) { stack.push(y * w); stack.push(y * w + w - 1); }
+    while (stack.length) {
+      const p = stack.pop();
+      if (seen[p]) continue;
+      seen[p] = 1;
+      const i = p * 4;
+      if (!isBg(i)) continue;
+      d[i + 3] = 0;
+      const x = p % w;
+      const y = (p / w) | 0;
+      if (x > 0) stack.push(p - 1);
+      if (x < w - 1) stack.push(p + 1);
+      if (y > 0) stack.push(p - w);
+      if (y < h - 1) stack.push(p + w);
+    }
+  }
+  function cutoutify(url) {
+    if (keyCache.has(url)) return keyCache.get(url);
+    const job = new Promise((res) => {
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const S = Math.min(640, im.naturalWidth || 640);
+          const c = document.createElement('canvas');
+          c.width = S;
+          c.height = Math.max(1, Math.round(S * (im.naturalHeight || S) / (im.naturalWidth || S)));
+          const ctx = c.getContext('2d');
+          if (!ctx) { res(url); return; }
+          ctx.drawImage(im, 0, 0, c.width, c.height);
+          const id = ctx.getImageData(0, 0, c.width, c.height);
+          floodKey(id, c.width, c.height);
+          ctx.putImageData(id, 0, 0);
+          res(c.toDataURL('image/png'));
+        } catch (_) { res(url); }
+      };
+      im.onerror = () => res(url);
+      im.src = url;
+    });
+    keyCache.set(url, job);
+    return job;
+  }
+
   // ---------- photo loading ----------
 
   async function getPhoto(a) {
@@ -548,9 +601,11 @@
     const paint = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
     if (paint && paint !== 'pending' && paint.status === 'ready') {
       const img = document.createElement('img');
-      img.src = paint.url;
       img.alt = a.callsign || a.hex;
       img.loading = 'lazy';
+      img.src = paint.url;
+      // Swap in the true transparent cut-out the moment it is keyed.
+      cutoutify(paint.url).then((cut) => { if (cut !== paint.url) img.src = cut; });
       card.appendChild(img);
     } else {
       const sil = document.createElement('div');
