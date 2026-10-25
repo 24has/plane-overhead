@@ -34,11 +34,11 @@
     radius: 40,
     interval: 20,        // data poll (s)
     rotate: 45,          // plate rotation (s), 0 = off
-    view: 'plate',       // 'plate' | 'cluster'
+    view: 'cluster',   // 'plate' | 'cluster'
     hideGnd: true,
   };
 
-  const LS_KEY = 'po.cfg2'; // v2: fresh start; the v1 key held a stale label
+  const LS_KEY = 'po.cfg3'; // v3: cluster is the default view
 
   // Storage that survives kiosk browsers with storage disabled: if
   // localStorage throws, config keeps working in memory for the session.
@@ -422,6 +422,8 @@
   // ---------- cluster: everything in reach, sized by wingspan ----------
 
   const CLUSTER_MAX = 10;
+  const SHEET_W = 1200;
+  let sheetH = 0;
 
   function spanFor(a) {
     if (a.wingspan_m) return a.wingspan_m;
@@ -451,51 +453,134 @@
       const ordered = vis
         .map((a, i) => ({ a, ws: spans[i] }))
         .sort((x, y) => y.ws - x.ws);
-      for (const { a, ws } of ordered) {
-        const card = document.createElement('article');
-        card.className = 'cluster-card';
+      const boxes = ordered.map(({ a, ws }) => {
         const w = Math.round(150 + ((ws - lo) / (hi - lo || 1)) * 230);
-        card.style.width = `${w}px`;
-        card.title = `${a.callsign || a.hex} \u00b7 ${ws}m span`;
-        const paint = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
-        if (paint && paint !== 'pending' && paint.status === 'ready') {
-          const img = document.createElement('img');
-          img.src = paint.url;
-          img.alt = a.callsign || a.hex;
-          img.loading = 'lazy';
-          card.appendChild(img);
-        } else {
-          const sil = document.createElement('div');
-          sil.className = 'c-sil';
-          sil.innerHTML = silSvg(a.category);
-          card.appendChild(sil);
-          const photo = photoCache.get(a.hex);
-          if (photo === 'pending' || paint === 'pending') {
-            getPhoto(a).then((p) => {
-              if (p && p.found) getPaint(a, p, CLUSTER_STYLE).then(() => render());
-            }).catch(() => {});
-          } else if (photo && photo.found && paint !== 'failed') {
-            getPaint(a, photo, CLUSTER_STYLE).then(() => render());
-          }
-        }
-        const cap = document.createElement('div');
-        cap.className = 'cluster-cap';
-        const typeLine = a.type_desc || a.icao_type || 'aircraft';
-        const opLine = a.airline || a.owner || '';
-        cap.innerHTML =
-          `<div class="cc-type">${esc(typeLine)}</div>` +
-          `<div class="cc-reg">${esc(a.reg || a.hex.toUpperCase())}</div>` +
-          (opLine ? `<div class="cc-op">${esc(opLine)}</div>` : '');
-        card.appendChild(cap);
-        card.addEventListener('click', () => {
-          pinnedHex = a.hex;
-          setView('plate');
-          render();
-        });
-        grid.appendChild(card);
-      }
+        return { a, ws, w, h: w + 86 };
+      });
+      const pos = packSheet(boxes);
+      const wrap = document.createElement('div');
+      wrap.className = 'sheet-wrap';
+      const sheet = document.createElement('div');
+      sheet.className = 'sheet';
+      sheet.id = 'sheet';
+      boxes.forEach((b, i) => {
+        sheet.appendChild(buildSpec(b.a, b.ws, b.w, pos[i]));
+      });
+      sheet.style.height = sheetH + 'px';
+      wrap.appendChild(sheet);
+      grid.appendChild(wrap);
+      fitSheet();
     }
     $('btnNext').hidden = true;
+  }
+
+  // Golden-angle spiral packing, largest first: each aircraft takes the
+  // first free spot out from the middle, so the sheet reads as one
+  // composition instead of a grid of separate cards.
+  function packSheet(boxes) {
+    const gold = Math.PI * (3 - Math.sqrt(5));
+    const pad = 10;
+    const cx = SHEET_W / 2;
+    const cy = 250;
+    const placed = [];
+    const out = [];
+    boxes.forEach((b, bi) => {
+      if (!placed.length) {
+        const x = Math.round(cx - b.w / 2);
+        out.push({ x, y: pad });
+        placed.push({ x, y: pad, w: b.w, h: b.h });
+        return;
+      }
+      let th = bi * 1.7;
+      let R = 0;
+      let tries = 0;
+      let done = false;
+      while (!done && tries++ < 6000) {
+        const x = Math.round(cx + R * Math.cos(th) - b.w / 2);
+        const y = Math.round(Math.max(pad, cy + R * Math.sin(th) - b.h / 2));
+        if (x >= pad && x + b.w <= SHEET_W - pad) {
+          let clash = false;
+          for (const p of placed) {
+            if (!(x + b.w + pad <= p.x || p.x + p.w + pad <= x ||
+                  y + b.h + pad <= p.y || p.y + p.h + pad <= y)) {
+              clash = true;
+              break;
+            }
+          }
+          if (!clash) {
+            out.push({ x, y });
+            placed.push({ x, y, w: b.w, h: b.h });
+            done = true;
+          }
+        }
+        th += gold;
+        R += 1.6;
+      }
+      if (!done) {
+        const my = placed.reduce((m, p) => Math.max(m, p.y + p.h), 0);
+        out.push({ x: pad, y: my + pad });
+        placed.push({ x: pad, y: my + pad, w: b.w, h: b.h });
+      }
+    });
+    sheetH = placed.reduce((m, p) => Math.max(m, p.y + p.h), 0) + pad;
+    return out;
+  }
+
+  // The sheet lays out at a fixed 1200 units and scales to the screen,
+  // so the composition holds together at any tablet size.
+  function fitSheet() {
+    const grid = $('clusterGrid');
+    const sheet = document.getElementById('sheet');
+    if (!grid || !sheet || !sheetH) return;
+    const s = Math.min(1, grid.clientWidth / SHEET_W);
+    sheet.style.transform = 'scale(' + s + ')';
+    const wrap = sheet.parentElement;
+    if (wrap) wrap.style.height = (sheetH * s) + 'px';
+  }
+
+  function buildSpec(a, ws, w, p) {
+    const card = document.createElement('div');
+    card.className = 'spec';
+    card.style.left = p.x + 'px';
+    card.style.top = p.y + 'px';
+    card.style.width = w + 'px';
+    card.title = (a.callsign || a.hex) + ' \u00b7 ' + ws + 'm span';
+    const paint = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
+    if (paint && paint !== 'pending' && paint.status === 'ready') {
+      const img = document.createElement('img');
+      img.src = paint.url;
+      img.alt = a.callsign || a.hex;
+      img.loading = 'lazy';
+      card.appendChild(img);
+    } else {
+      const sil = document.createElement('div');
+      sil.className = 'c-sil';
+      sil.innerHTML = silSvg(a.category);
+      card.appendChild(sil);
+      const photo = photoCache.get(a.hex);
+      if (photo === 'pending' || paint === 'pending') {
+        getPhoto(a).then((pp) => {
+          if (pp && pp.found) getPaint(a, pp, CLUSTER_STYLE).then(() => render());
+        }).catch(() => {});
+      } else if (photo && photo.found && paint !== 'failed') {
+        getPaint(a, photo, CLUSTER_STYLE).then(() => render());
+      }
+    }
+    const cap = document.createElement('div');
+    cap.className = 'cluster-cap';
+    const typeLine = a.type_desc || a.icao_type || 'aircraft';
+    const opLine = a.airline || a.owner || '';
+    cap.innerHTML =
+      `<div class="cc-type">${esc(typeLine)}</div>` +
+      `<div class="cc-reg">${esc(a.reg || a.hex.toUpperCase())}</div>` +
+      (opLine ? `<div class="cc-op">${esc(opLine)}</div>` : '');
+    card.appendChild(cap);
+    card.addEventListener('click', () => {
+      pinnedHex = a.hex;
+      setView('plate');
+      render();
+    });
+    return card;
   }
 
   function setView(v) {
@@ -714,9 +799,15 @@
     if (document.visibilityState === 'visible') keepAwake();
   });
 
+  let rzT = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(rzT);
+    rzT = setTimeout(() => { if (cfg.view === 'cluster') fitSheet(); }, 200);
+  });
+
   // ---------- boot ----------
 
-  if (cfg.view !== 'cluster' && cfg.view !== 'plate') cfg.view = 'plate';
+  if (cfg.view !== 'cluster' && cfg.view !== 'plate') cfg.view = 'cluster';
   setView(cfg.view);
   render();
   tick();

@@ -259,27 +259,11 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
   color: var(--ink-soft);
 }
 
-.cluster-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: clamp(14px, 2.5vmin, 24px) clamp(10px, 2vmin, 20px);
-  align-items: flex-end;
-  justify-content: center;
-  width: min(100%, 1200px);
-  margin: 0 auto;
-  padding: clamp(10px, 2vmin, 20px) 4vw 6vh;
-}
-
-.cluster-card {
-  background: transparent;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-  text-align: center;
-}
-.cluster-card:hover .cluster-cap { border-color: var(--accent); }
-
-.cluster-card img {
+.cluster-grid { width: 100%; padding: 0 0 6vh; }
+.sheet-wrap { width: min(100%, 1200px); margin: 0 auto; overflow: hidden; }
+.sheet { position: relative; width: 1200px; transform-origin: top left; }
+.spec { position: absolute; text-align: center; cursor: pointer; }
+.spec img {
   display: block;
   width: 100%;
   height: auto;
@@ -288,15 +272,15 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
      so cut-outs blend into the paper like a printed plate. */
   mix-blend-mode: multiply;
 }
-
-.cluster-card .c-sil {
+.spec:hover .cluster-cap { border-color: var(--accent); }
+.spec .c-sil {
   display: grid;
   place-items: center;
   width: 100%;
   aspect-ratio: 1 / 1;
   color: var(--ink-faint);
 }
-.cluster-card .c-sil svg { width: 45%; opacity: .5; }
+.spec .c-sil svg { width: 45%; opacity: .5; }
 
 .cluster-cap {
   display: inline-block;
