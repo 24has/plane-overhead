@@ -43,6 +43,16 @@ const STYLES = {
       `carved ink shapes on warm paper, high contrast, handmade print texture, ` +
       `no photograph, no watermark, no text`,
   },
+  cutout: {
+    version: 'v1',
+    model: '@cf/black-forest-labs/flux-1-schnell',
+    steps: 4,
+    prompt: (a) =>
+      `Side-profile illustration of ${a.subject} in flight, ${a.livery}, ` +
+      `perfectly isolated on a plain warm white paper background, no sky, ` +
+      `no clouds, no ground, no scenery, vintage natural-history plate style ` +
+      `with a fine ink outline, no photograph, no watermark, no text`,
+  },
 };
 
 const MAX_PAINT_PER_DAY = 80;

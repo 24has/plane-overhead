@@ -262,32 +262,28 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 .cluster-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: clamp(10px, 2vmin, 20px);
+  gap: clamp(18px, 3.5vmin, 34px) clamp(14px, 2.5vmin, 26px);
   align-items: flex-end;
   justify-content: center;
-  width: min(100%, 1120px);
+  width: min(100%, 1200px);
   margin: 0 auto;
-  padding: clamp(8px, 2vmin, 18px) 4vw 4vh;
+  padding: clamp(10px, 2vmin, 20px) 4vw 6vh;
 }
 
 .cluster-card {
-  border: 1.5px solid var(--ink);
-  outline: 1px solid var(--rule-strong);
-  outline-offset: -5px;
-  background: var(--paper);
-  padding: 8px 8px 6px;
+  background: transparent;
+  border: 0;
+  padding: 0;
   cursor: pointer;
-  transition: border-color .15s;
+  text-align: center;
 }
-.cluster-card:hover { border-color: var(--accent); }
+.cluster-card:hover .cluster-cap { border-color: var(--accent); }
 
 .cluster-card img {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 1 / 1;
-  object-fit: cover;
-  filter: sepia(.14) contrast(.96) brightness(1.02) saturate(.82);
+  border: 0;
 }
 
 .cluster-card .c-sil {
@@ -296,13 +292,35 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
   width: 100%;
   aspect-ratio: 1 / 1;
   color: var(--ink-faint);
-  border: 1px solid var(--rule);
 }
 .cluster-card .c-sil svg { width: 45%; opacity: .5; }
 
-.cluster-cap { padding: 6px 2px 0; text-align: center; }
-.cluster-cap .cc-cs { font: 700 13px var(--font-mono); letter-spacing: .03em; }
-.cluster-cap .cc-sub { font-size: 10.5px; color: var(--ink-soft); font-style: italic; margin-top: 1px; }
+.cluster-cap {
+  display: inline-block;
+  margin: 10px auto 0;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  padding: 7px 14px 6px;
+  text-align: center;
+}
+.cluster-cap .cc-type {
+  font-family: var(--font-sc);
+  font-size: 14px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+.cluster-cap .cc-reg {
+  font: 700 12px var(--font-mono);
+  letter-spacing: .05em;
+  margin-top: 2px;
+}
+.cluster-cap .cc-op {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin-top: 1px;
+}
 
 /* ---------- error banner ---------- */
 

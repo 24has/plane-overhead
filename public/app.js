@@ -86,9 +86,11 @@
   let rotateTimer = null;
   const photoCache = new Map(); // hex -> photo record | 'pending'
   const photoWaiters = new Map(); // hex -> [resolve]
-  const paintCache = new Map(); // hex -> 'pending' | { status: 'ready', url } | { status: 'failed' }
-  const paintWaiters = new Map(); // hex -> [resolve]
-  const PAINT_STYLE = 'poster';
+  const paintCache = new Map(); // 'style:hex' -> 'pending' | { status, url }
+  const paintWaiters = new Map(); // 'style:hex' -> [resolve]
+  const PLATE_STYLE = 'poster';
+  const CLUSTER_STYLE = 'cutout';
+  function paintKey(style, hex) { return style + ':' + hex; }
   let gpsLabel = '';
 
   // ---------- helpers ----------
@@ -157,10 +159,10 @@
     });
   }
 
-  function paintUrl(a, photo) {
+  function paintUrl(a, photo, style) {
     const p = new URLSearchParams();
     p.set('hex', a.hex);
-    p.set('style', PAINT_STYLE);
+    p.set('style', style);
     if (photo && photo.photo_id) p.set('photo_id', String(photo.photo_id));
     if (a.reg) p.set('reg', a.reg);
     if (a.callsign) p.set('callsign', a.callsign);
@@ -171,27 +173,28 @@
     return `/api/paint?${p}`;
   }
 
-  async function getPaint(a, photo) {
-    if (paintCache.has(a.hex)) {
-      const c = paintCache.get(a.hex);
+  async function getPaint(a, photo, style) {
+    const key = paintKey(style, a.hex);
+    if (paintCache.has(key)) {
+      const c = paintCache.get(key);
       if (c !== 'pending') return c;
       await new Promise((res) => {
-        const w = paintWaiters.get(a.hex) || [];
+        const w = paintWaiters.get(key) || [];
         w.push(res);
-        paintWaiters.set(a.hex, w);
+        paintWaiters.set(key, w);
       });
-      return paintCache.get(a.hex);
+      return paintCache.get(key);
     }
-    paintCache.set(a.hex, 'pending');
+    paintCache.set(key, 'pending');
     let out = { status: 'failed' };
     try {
-      const r = await fetch(paintUrl(a, photo), { cache: 'force-cache' });
-      if (r.ok) out = { status: 'ready', url: paintUrl(a, photo) };
+      const r = await fetch(paintUrl(a, photo, style), { cache: 'force-cache' });
+      if (r.ok) out = { status: 'ready', url: paintUrl(a, photo, style) };
     } catch (_) { /* offline */ }
-    paintCache.set(a.hex, out);
-    const w = paintWaiters.get(a.hex);
+    paintCache.set(key, out);
+    const w = paintWaiters.get(key);
     if (w) {
-      paintWaiters.delete(a.hex);
+      paintWaiters.delete(key);
       w.forEach((res) => res());
     }
     return out;
@@ -199,10 +202,10 @@
 
   // Kick off paintings for the aircraft on screen. Photo lookup comes first
   // so the cache key can pin the exact source airframe photograph.
-  function primePaints() {
+  function primePaints(style) {
     visible().slice(0, 10).forEach((a) => {
       getPhoto(a).then((photo) => {
-        if (photo && photo.found) getPaint(a, photo).then(() => render());
+        if (photo && photo.found) getPaint(a, photo, style).then(() => render());
       }).catch(() => {});
     });
   }
@@ -226,7 +229,7 @@
       lastGoodAt = Date.now();
       hasData = true;
       primePhotos();
-      primePaints();
+      primePaints(cfg.view === 'cluster' ? CLUSTER_STYLE : PLATE_STYLE);
     } catch (e) {
       lastErr = (e && e.message) || String(e);
     }
@@ -333,7 +336,7 @@
     $('pParticulars').innerHTML = particularsLine(a);
 
     const photo = photoCache.get(a.hex);
-    const paint = paintCache.get(a.hex);
+    const paint = paintCache.get(paintKey(PLATE_STYLE, a.hex));
     if (paint && paint !== 'pending' && paint.status === 'ready') {
       const ref = photo && photo !== 'pending' && photo.found && photo.photographer
         ? ` \u00b7 after a photograph \u00a9 ${esc(photo.photographer)}`
@@ -357,7 +360,7 @@
       if (photo === 'pending') {
         getPhoto(a).then(() => render());
       } else if (photo && photo.found && paint !== 'failed') {
-        getPaint(a, photo).then(() => render());
+        getPaint(a, photo, PLATE_STYLE).then(() => render());
       }
     }
 
@@ -370,7 +373,7 @@
     const el = document.createElement('button');
     el.className = 's' + (a.hex === currentHex ? ' on' : '');
     el.title = a.callsign || a.hex;
-    const paint = paintCache.get(a.hex);
+    const paint = paintCache.get(paintKey(PLATE_STYLE, a.hex));
     if (paint && paint !== 'pending' && paint.status === 'ready') {
       const img = document.createElement('img');
       img.src = paint.url;
@@ -384,7 +387,7 @@
       const photo = photoCache.get(a.hex);
       if (photo === 'pending' || paint === 'pending') {
         getPhoto(a).then((p) => {
-          if (p && p.found) getPaint(a, p).then(() => render());
+          if (p && p.found) getPaint(a, p, PLATE_STYLE).then(() => render());
         }).catch(() => {});
       }
     }
@@ -454,7 +457,7 @@
         const w = Math.round(150 + ((ws - lo) / (hi - lo || 1)) * 230);
         card.style.width = `${w}px`;
         card.title = `${a.callsign || a.hex} \u00b7 ${ws}m span`;
-        const paint = paintCache.get(a.hex);
+        const paint = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
         if (paint && paint !== 'pending' && paint.status === 'ready') {
           const img = document.createElement('img');
           img.src = paint.url;
@@ -469,18 +472,20 @@
           const photo = photoCache.get(a.hex);
           if (photo === 'pending' || paint === 'pending') {
             getPhoto(a).then((p) => {
-              if (p && p.found) getPaint(a, p).then(() => render());
+              if (p && p.found) getPaint(a, p, CLUSTER_STYLE).then(() => render());
             }).catch(() => {});
           } else if (photo && photo.found && paint !== 'failed') {
-            getPaint(a, photo).then(() => render());
+            getPaint(a, photo, CLUSTER_STYLE).then(() => render());
           }
         }
         const cap = document.createElement('div');
         cap.className = 'cluster-cap';
-        const sub = a.reg || a.type_desc || a.icao_type || '';
+        const typeLine = a.type_desc || a.icao_type || 'aircraft';
+        const opLine = a.airline || a.owner || '';
         cap.innerHTML =
-          `<div class="cc-cs">${esc(a.callsign || a.hex.toUpperCase())}</div>` +
-          (sub ? `<div class="cc-sub">${esc(sub)}</div>` : '');
+          `<div class="cc-type">${esc(typeLine)}</div>` +
+          `<div class="cc-reg">${esc(a.reg || a.hex.toUpperCase())}</div>` +
+          (opLine ? `<div class="cc-op">${esc(opLine)}</div>` : '');
         card.appendChild(cap);
         card.addEventListener('click', () => {
           pinnedHex = a.hex;
@@ -499,7 +504,8 @@
     $('clusterView').hidden = cfg.view !== 'cluster';
     $('btnView').setAttribute('aria-label', cfg.view === 'cluster' ? 'Switch to plate' : 'Switch to cluster');
     save();
-    if (cfg.view === 'cluster') primePaints();
+    if (cfg.view === 'cluster') primePaints(CLUSTER_STYLE);
+    else primePaints(PLATE_STYLE);
   }
 
   function renderErrban() {
@@ -523,7 +529,7 @@
     el.hidden = false;
     const age = lastGoodAt ? Math.max(0, Math.round((Date.now() - lastGoodAt) / 1000)) + 's ago' : 'never';
     const cur = visible().find((x) => x.hex === currentHex);
-    const paint = cur ? paintCache.get(cur.hex) : null;
+    const paint = cur ? paintCache.get(paintKey(PLATE_STYLE, cur.hex)) : null;
     const paintState = !cur ? 'no plate' : paint === 'pending' ? 'painting' : paint && paint.status === 'ready' ? 'painted' : 'no paint';
     el.textContent =
       `view ${cfg.view} \u00b7 ${cfg.lat.toFixed(3)},${cfg.lon.toFixed(3)} r${cfg.radius}nm` +
