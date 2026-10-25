@@ -40,9 +40,26 @@
 
   const LS_KEY = 'po.cfg2'; // v2: fresh start; the v1 key held a stale label
 
+  // Storage that survives kiosk browsers with storage disabled: if
+  // localStorage throws, config keeps working in memory for the session.
+  const store = (() => {
+    const mem = {};
+    let ok = false;
+    try {
+      localStorage.setItem('__po_probe', '1');
+      localStorage.removeItem('__po_probe');
+      ok = true;
+    } catch (_) { ok = false; }
+    return {
+      get(k) { try { return ok ? localStorage.getItem(k) : (mem[k] || null); } catch (_) { return mem[k] || null; } },
+      set(k, v) { try { if (ok) localStorage.setItem(k, v); else mem[k] = v; } catch (_) { mem[k] = v; } },
+    };
+  })();
+
   const q = new URLSearchParams(location.search);
-  const ls = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-  const cfg = { ...DEFAULTS, ...ls };
+  let ls = {};
+  try { ls = JSON.parse(store.get(LS_KEY) || '{}') || {}; } catch (_) { ls = {}; }
+  const cfg = Object.assign({}, DEFAULTS, ls);
   for (const k of ['lat', 'lon', 'label', 'radius', 'interval', 'rotate', 'mode', 'view']) {
     const v = q.get(k);
     if (v != null && v !== '') cfg[k] = v;
@@ -52,9 +69,9 @@
   cfg.radius = +cfg.radius;
   cfg.interval = +cfg.interval || 20;
   cfg.rotate = +cfg.rotate;
-  cfg.hideGnd = q.get('gnd') != null ? q.get('gnd') === '1' : (ls.hideGnd ?? true);
+  cfg.hideGnd = q.get('gnd') != null ? q.get('gnd') === '1' : (ls.hideGnd != null ? ls.hideGnd : true);
 
-  const save = () => localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+  const save = () => store.set(LS_KEY, JSON.stringify(cfg));
 
   // ---------- state ----------
 
@@ -122,7 +139,7 @@
         const d = await r.json();
         out = d && d.found ? d : { found: false };
       }
-    } catch { /* offline */ }
+    } catch (_) { /* offline */ }
     photoCache.set(a.hex, out);
     const w = photoWaiters.get(a.hex);
     if (w) {
@@ -170,7 +187,7 @@
     try {
       const r = await fetch(paintUrl(a, photo), { cache: 'force-cache' });
       if (r.ok) out = { status: 'ready', url: paintUrl(a, photo) };
-    } catch { /* offline */ }
+    } catch (_) { /* offline */ }
     paintCache.set(a.hex, out);
     const w = paintWaiters.get(a.hex);
     if (w) {
@@ -568,7 +585,7 @@
       const name = a.city || a.town || a.village || a.suburb || a.hamlet || a.county || a.state || '';
       gpsLabel = [name, a.state || ''].filter(Boolean).join(' ');
       render();
-    } catch { /* keep coordinates */ }
+    } catch (_) { /* keep coordinates */ }
   }
 
   // ---------- config dialog ----------
@@ -647,7 +664,7 @@
     try {
       await navigator.clipboard.writeText(u.toString());
       $('cNote').textContent = 'Link copied to clipboard.';
-    } catch {
+    } catch (_) {
       $('cNote').textContent = 'Copy failed \u2014 URL is: ' + u.toString();
     }
   });
@@ -702,7 +719,7 @@
   keepAwake();
   if (cfg.mode === 'auto') {
     startGeoWatch();
-    navigator.geolocation?.getCurrentPosition(
+    if (navigator.geolocation) navigator.geolocation.getCurrentPosition(
       (p) => {
         cfg.lat = p.coords.latitude;
         cfg.lon = p.coords.longitude;
