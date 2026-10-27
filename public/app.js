@@ -497,10 +497,11 @@
 
   function renderCluster() {
     const grid = $('clusterGrid');
-    grid.innerHTML = '';
     const vis = visible().slice(0, CLUSTER_MAX);
     const place = cfg.label || gpsLabel || '';
     if (!vis.length) {
+      composeToken++;
+      grid.innerHTML = '';
       $('cTitle').textContent = 'Overhead';
       $('cSub').textContent = hasData ? 'nothing in reach right now' : 'listening for the sky';
       const e = document.createElement('p');
@@ -512,27 +513,14 @@
       const spans = vis.map(spanFor);
       const lo = Math.min(...spans);
       const hi = Math.max(...spans);
-      $('cSub').textContent = `${vis.length} in reach \u00b7 sized by wingspan`;
       const ordered = vis
         .map((a, i) => ({ a, ws: spans[i] }))
         .sort((x, y) => y.ws - x.ws);
       const boxes = ordered.map(({ a, ws }) => {
         const w = Math.round(150 + ((ws - lo) / (hi - lo || 1)) * 230);
-        return { a, ws, w, h: w + 86 };
+        return { a, ws, w, h: w + 92 };
       });
-      const pos = packSheet(boxes);
-      const wrap = document.createElement('div');
-      wrap.className = 'sheet-wrap';
-      const sheet = document.createElement('div');
-      sheet.className = 'sheet';
-      sheet.id = 'sheet';
-      boxes.forEach((b, i) => {
-        sheet.appendChild(buildSpec(b.a, b.ws, b.w, pos[i]));
-      });
-      sheet.style.height = sheetH + 'px';
-      wrap.appendChild(sheet);
-      grid.appendChild(wrap);
-      fitSheet();
+      composeSheet(grid, boxes, packSheet(boxes));
     }
     $('btnNext').hidden = true;
   }
@@ -601,54 +589,105 @@
     if (wrap) wrap.style.height = (sheetH * s) + 'px';
   }
 
-  function buildSpec(a, ws, w, p) {
-    const card = document.createElement('div');
-    card.className = 'spec';
-    card.style.left = p.x + 'px';
-    card.style.top = p.y + 'px';
-    card.style.width = w + 'px';
-    card.title = (a.callsign || a.hex) + ' \u00b7 ' + ws + 'm span';
-    const paint = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
-    if (paint && paint !== 'pending' && paint.status === 'ready') {
-      const img = document.createElement('img');
-      img.alt = a.callsign || a.hex;
-      img.loading = 'lazy';
-      img.src = paint.url;
-      // Swap in the true transparent cut-out the moment it is keyed.
-      // Any failure keeps the original painting: never a blank card.
-      try {
-        cutoutify(paint.url).then((cut) => { if (cut !== paint.url) img.src = cut; });
-      } catch (_) { /* original stays */ }
-      card.appendChild(img);
-    } else {
-      const sil = document.createElement('div');
-      sil.className = 'c-sil';
-      sil.innerHTML = silSvg(a.category);
-      card.appendChild(sil);
-      const photo = photoCache.get(a.hex);
-      if (photo === 'pending' || paint === 'pending') {
-        getPhoto(a).then((pp) => {
-          if (pp && pp.found) getPaint(a, pp, CLUSTER_STYLE).then(() => render());
-        }).catch(() => {});
-      } else if (photo && photo.found && paint !== 'failed') {
-        getPaint(a, photo, CLUSTER_STYLE).then(() => render());
-      }
-    }
-    const cap = document.createElement('div');
-    cap.className = 'cluster-cap';
-    const typeLine = a.type_desc || a.icao_type || 'aircraft';
-    const opLine = a.airline || a.owner || '';
-    cap.innerHTML =
-      `<div class="cc-type">${esc(typeLine)}</div>` +
-      `<div class="cc-reg">${esc(a.reg || a.hex.toUpperCase())}</div>` +
-      (opLine ? `<div class="cc-op">${esc(opLine)}</div>` : '');
-    card.appendChild(cap);
-    card.addEventListener('click', () => {
-      pinnedHex = a.hex;
-      setView('plate');
-      render();
+  let composeToken = 0;
+  const imgCache = new Map(); // cutout dataURL -> loaded image
+  let sheetLayout = []; // {a,x,y,w,h} in layout px, for tap-to-plate
+
+  function loadImage(url) {
+    if (imgCache.has(url)) return Promise.resolve(imgCache.get(url));
+    return new Promise((res) => {
+      const im = new Image();
+      im.onload = () => { imgCache.set(url, im); res(im); };
+      im.onerror = () => res(null);
+      im.src = url;
     });
-    return card;
+  }
+
+  // One clean artwork: every finished cut-out painting composed onto a
+  // single cream sheet, sized by wingspan, with framed captions.
+  // Aircraft still being painted are left off until their art lands.
+  async function composeSheet(grid, boxes, pos) {
+    const my = ++composeToken;
+    const jobs = boxes.map(async (b, i) => {
+      const paint = paintCache.get(paintKey(CLUSTER_STYLE, b.a.hex));
+      if (paint && paint !== 'pending' && paint.status === 'ready') {
+        const cut = await cutoutify(paint.url);
+        const img = await loadImage(cut);
+        if (img) return { box: b, p: pos[i], img };
+      } else {
+        const photo = photoCache.get(b.a.hex);
+        if (photo === 'pending' || paint === 'pending') {
+          getPhoto(b.a).then((pp) => {
+            if (pp && pp.found) getPaint(b.a, pp, CLUSTER_STYLE).then(() => render());
+          }).catch(() => {});
+        } else if (photo && photo.found && paint !== 'failed') {
+          getPaint(b.a, photo, CLUSTER_STYLE).then(() => render());
+        }
+      }
+      return null;
+    });
+    const done = (await Promise.all(jobs)).filter(Boolean);
+    if (my !== composeToken) return; // a newer poll took over
+    grid.innerHTML = '';
+    const S = 2;
+    const c = document.createElement('canvas');
+    c.width = SHEET_W * S;
+    c.height = Math.max(1, Math.round(sheetH * S));
+    c.className = 'sheet-canvas';
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(S, S);
+    ctx.fillStyle = '#f6f2e7';
+    ctx.fillRect(0, 0, SHEET_W, sheetH);
+    ctx.textAlign = 'center';
+    sheetLayout = [];
+    for (const d of done) {
+      ctx.drawImage(d.img, d.p.x, d.p.y, d.box.w, d.box.w);
+      const cxp = d.p.x + d.box.w / 2;
+      const top = d.p.y + d.box.w + 10;
+      const typeLine = (d.box.a.type_desc || d.box.a.icao_type || 'aircraft').toUpperCase();
+      const regLine = d.box.a.reg || d.box.a.hex.toUpperCase();
+      const opLine = d.box.a.airline || d.box.a.owner || '';
+      ctx.font = '600 15px Georgia, serif';
+      const w1 = ctx.measureText(typeLine).width;
+      ctx.font = '700 13px monospace';
+      const w2 = ctx.measureText(regLine).width;
+      ctx.font = 'italic 12px Georgia, serif';
+      const w3 = opLine ? ctx.measureText(opLine).width : 0;
+      const bw = Math.max(w1, w2, w3) + 30;
+      const bh = opLine ? 64 : 48;
+      ctx.strokeStyle = '#26231c';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(cxp - bw / 2, top, bw, bh);
+      ctx.fillStyle = '#26231c';
+      ctx.font = '600 15px Georgia, serif';
+      ctx.fillText(typeLine, cxp, top + 20);
+      ctx.font = '700 13px monospace';
+      ctx.fillText(regLine, cxp, top + 37);
+      if (opLine) {
+        ctx.font = 'italic 12px Georgia, serif';
+        ctx.fillStyle = '#5d574a';
+        ctx.fillText(opLine, cxp, top + 53);
+      }
+      sheetLayout.push({ a: d.box.a, x: d.p.x, y: d.p.y, w: d.box.w, h: d.box.h });
+    }
+    c.addEventListener('click', (e) => {
+      const r = c.getBoundingClientRect();
+      const lx = (e.clientX - r.left) * (SHEET_W / r.width);
+      const ly = (e.clientY - r.top) * (sheetH / r.height);
+      for (const s of sheetLayout) {
+        if (lx >= s.x && lx <= s.x + s.w && ly >= s.y && ly <= s.y + s.h) {
+          pinnedHex = s.a.hex;
+          setView('plate');
+          render();
+          break;
+        }
+      }
+    });
+    grid.appendChild(c);
+    const pend = boxes.length - done.length;
+    $('cSub').textContent = `${done.length} painted on one sheet` +
+      (pend ? ` \u00b7 painting ${pend} more` : '');
   }
 
   function setView(v) {
