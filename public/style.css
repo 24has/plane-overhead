@@ -243,10 +243,10 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 .cluster {
   justify-content: flex-start;
   overflow-y: auto;
-  padding-bottom: 8vh;
+  padding-top: 8px;
 }
 
-.cluster-head { text-align: center; padding: 2vh 4vw 0; }
+.cluster-head { display: none; }
 
 .cluster-title {
   margin: 0;
