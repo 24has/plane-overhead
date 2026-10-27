@@ -126,6 +126,7 @@
     const isBg = (i) => d[i] > 232 && d[i + 1] > 232 && d[i + 2] > 232;
     const seen = new Uint8Array(w * h);
     const stack = [];
+    let cleared = 0;
     for (let x = 0; x < w; x++) { stack.push(x); stack.push((h - 1) * w + x); }
     for (let y = 0; y < h; y++) { stack.push(y * w); stack.push(y * w + w - 1); }
     while (stack.length) {
@@ -135,6 +136,7 @@
       const i = p * 4;
       if (!isBg(i)) continue;
       d[i + 3] = 0;
+      cleared++;
       const x = p % w;
       const y = (p / w) | 0;
       if (x > 0) stack.push(p - 1);
@@ -142,28 +144,36 @@
       if (y > 0) stack.push(p - w);
       if (y < h - 1) stack.push(p + w);
     }
+    return cleared;
   }
   function cutoutify(url) {
     if (keyCache.has(url)) return keyCache.get(url);
     const job = new Promise((res) => {
-      const im = new Image();
-      im.onload = () => {
-        try {
-          const S = Math.min(640, im.naturalWidth || 640);
-          const c = document.createElement('canvas');
-          c.width = S;
-          c.height = Math.max(1, Math.round(S * (im.naturalHeight || S) / (im.naturalWidth || S)));
-          const ctx = c.getContext('2d');
-          if (!ctx) { res(url); return; }
-          ctx.drawImage(im, 0, 0, c.width, c.height);
-          const id = ctx.getImageData(0, 0, c.width, c.height);
-          floodKey(id, c.width, c.height);
-          ctx.putImageData(id, 0, 0);
-          res(c.toDataURL('image/png'));
-        } catch (_) { res(url); }
-      };
-      im.onerror = () => res(url);
-      im.src = url;
+      const done = (out) => res(out);
+      try {
+        const im = new Image();
+        im.onload = () => {
+          try {
+            const S = Math.min(640, im.naturalWidth || 640);
+            const c = document.createElement('canvas');
+            c.width = S;
+            c.height = Math.max(1, Math.round(S * (im.naturalHeight || S) / (im.naturalWidth || S)));
+            const ctx = c.getContext('2d');
+            if (!ctx) { done(url); return; }
+            ctx.drawImage(im, 0, 0, c.width, c.height);
+            const id = ctx.getImageData(0, 0, c.width, c.height);
+            const cleared = floodKey(id, c.width, c.height);
+            // If keying would erase the whole frame, the source had no
+            // clean background: keep the original instead of an
+            // invisible image.
+            if (cleared > c.width * c.height * 0.98) { done(url); return; }
+            ctx.putImageData(id, 0, 0);
+            done(c.toDataURL('image/png'));
+          } catch (_) { done(url); }
+        };
+        im.onerror = () => done(url);
+        im.src = url;
+      } catch (_) { done(url); }
     });
     keyCache.set(url, job);
     return job;
@@ -605,7 +615,10 @@
       img.loading = 'lazy';
       img.src = paint.url;
       // Swap in the true transparent cut-out the moment it is keyed.
-      cutoutify(paint.url).then((cut) => { if (cut !== paint.url) img.src = cut; });
+      // Any failure keeps the original painting: never a blank card.
+      try {
+        cutoutify(paint.url).then((cut) => { if (cut !== paint.url) img.src = cut; });
+      } catch (_) { /* original stays */ }
       card.appendChild(img);
     } else {
       const sil = document.createElement('div');
@@ -671,10 +684,22 @@
     const cur = visible().find((x) => x.hex === currentHex);
     const paint = cur ? paintCache.get(paintKey(PLATE_STYLE, cur.hex)) : null;
     const paintState = !cur ? 'no plate' : paint === 'pending' ? 'painting' : paint && paint.status === 'ready' ? 'painted' : 'no paint';
+    let extra = '';
+    if (cfg.view === 'cluster') {
+      const vis = visible().slice(0, CLUSTER_MAX);
+      let ready = 0, pending = 0;
+      for (const a of vis) {
+        const p = paintCache.get(paintKey(CLUSTER_STYLE, a.hex));
+        if (p && p !== 'pending' && p.status === 'ready') ready++;
+        else if (p === 'pending') pending++;
+      }
+      extra = ` \u00b7 sheet ${vis.length} cards ${ready} cut ${pending} keying`;
+    }
     el.textContent =
       `view ${cfg.view} \u00b7 ${cfg.lat.toFixed(3)},${cfg.lon.toFixed(3)} r${cfg.radius}nm` +
       ` \u00b7 ${aircraft.length} tracked/${visible().length} shown \u00b7 poll ${age}` +
       ` \u00b7 ${cur ? (cur.callsign || cur.hex) + ' ' + paintState : paintState}` +
+      extra +
       (lastErr ? ` \u00b7 ERR ${lastErr}` : '');
   }
 
