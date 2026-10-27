@@ -718,6 +718,8 @@
   function renderDiag() {
     const el = $('diag');
     if (!el) return;
+    // Debug scaffolding: only visible when requested via ?diag=1
+    if (!q.get('diag')) { el.hidden = true; return; }
     el.hidden = false;
     const age = lastGoodAt ? Math.max(0, Math.round((Date.now() - lastGoodAt) / 1000)) + 's ago' : 'never';
     const cur = visible().find((x) => x.hex === currentHex);
