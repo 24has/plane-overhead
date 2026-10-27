@@ -516,82 +516,41 @@
       const ordered = vis
         .map((a, i) => ({ a, ws: spans[i] }))
         .sort((x, y) => y.ws - x.ws);
-      const boxes = ordered.map(({ a, ws }) => {
-        const w = Math.round(150 + ((ws - lo) / (hi - lo || 1)) * 230);
-        return { a, ws, w, h: w + 92 };
-      });
-      composeSheet(grid, boxes, packSheet(boxes));
+      composeSheet(grid, ordered);
     }
     $('btnNext').hidden = true;
   }
 
-  // Golden-angle spiral packing, largest first: each aircraft takes the
-  // first free spot out from the middle, so the sheet reads as one
-  // composition instead of a grid of separate cards.
-  function packSheet(boxes) {
-    const gold = Math.PI * (3 - Math.sqrt(5));
-    const pad = 10;
-    const cx = SHEET_W / 2;
-    const cy = 250;
-    const placed = [];
-    const out = [];
-    boxes.forEach((b, bi) => {
-      if (!placed.length) {
-        const x = Math.round(cx - b.w / 2);
-        out.push({ x, y: pad });
-        placed.push({ x, y: pad, w: b.w, h: b.h });
-        return;
-      }
-      let th = bi * 1.7;
-      let R = 0;
-      let tries = 0;
-      let done = false;
-      while (!done && tries++ < 6000) {
-        const x = Math.round(cx + R * Math.cos(th) - b.w / 2);
-        const y = Math.round(Math.max(pad, cy + R * Math.sin(th) - b.h / 2));
-        if (x >= pad && x + b.w <= SHEET_W - pad) {
-          let clash = false;
-          for (const p of placed) {
-            if (!(x + b.w + pad <= p.x || p.x + p.w + pad <= x ||
-                  y + b.h + pad <= p.y || p.y + p.h + pad <= y)) {
-              clash = true;
-              break;
-            }
-          }
-          if (!clash) {
-            out.push({ x, y });
-            placed.push({ x, y, w: b.w, h: b.h });
-            done = true;
-          }
+  // Alpha bounds of a keyed cut-out: the plane's real footprint inside
+  // its square painting, so packing hugs the artwork, not the canvas.
+  function alphaBounds(img) {
+    const S = 96;
+    const c = document.createElement('canvas');
+    c.width = S;
+    c.height = S;
+    const ctx = c.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, S, S);
+    let d;
+    try { d = ctx.getImageData(0, 0, S, S).data; } catch (_) { return null; }
+    let x0 = S, y0 = S, x1 = -1, y1 = -1;
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        if (d[(y * S + x) * 4 + 3] > 24) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
         }
-        th += gold;
-        R += 1.6;
       }
-      if (!done) {
-        const my = placed.reduce((m, p) => Math.max(m, p.y + p.h), 0);
-        out.push({ x: pad, y: my + pad });
-        placed.push({ x: pad, y: my + pad, w: b.w, h: b.h });
-      }
-    });
-    sheetH = placed.reduce((m, p) => Math.max(m, p.y + p.h), 0) + pad;
-    return out;
-  }
-
-  // The sheet lays out at a fixed 1200 units and scales to the screen,
-  // so the composition holds together at any tablet size.
-  function fitSheet() {
-    const grid = $('clusterGrid');
-    const sheet = document.getElementById('sheet');
-    if (!grid || !sheet || !sheetH) return;
-    const s = Math.min(1, grid.clientWidth / SHEET_W);
-    sheet.style.transform = 'scale(' + s + ')';
-    const wrap = sheet.parentElement;
-    if (wrap) wrap.style.height = (sheetH * s) + 'px';
+    }
+    if (x1 < 0) return null;
+    return { x0: x0 / S, y0: y0 / S, x1: (x1 + 1) / S, y1: (y1 + 1) / S };
   }
 
   let composeToken = 0;
   const imgCache = new Map(); // cutout dataURL -> loaded image
-  let sheetLayout = []; // {a,x,y,w,h} in layout px, for tap-to-plate
+  let sheetLayout = []; // {a,x,y,w,h} in sheet px, for tap-to-plate
 
   function loadImage(url) {
     if (imgCache.has(url)) return Promise.resolve(imgCache.get(url));
@@ -603,78 +562,119 @@
     });
   }
 
-  // One clean artwork: every finished cut-out painting composed onto a
-  // single cream sheet, sized by wingspan, with framed captions.
-  // Aircraft still being painted are left off until their art lands.
-  async function composeSheet(grid, boxes, pos) {
+  // One clean artwork: all finished cut-outs composed on one cream sheet,
+  // packed middle-out against their true artwork bounds (not the square
+  // canvases), sized by wingspan, no labels. Aircraft still painting are
+  // left off until their art lands.
+  async function composeSheet(grid, ordered) {
     const my = ++composeToken;
-    const jobs = boxes.map(async (b, i) => {
-      const paint = paintCache.get(paintKey(CLUSTER_STYLE, b.a.hex));
+    const jobs = ordered.map(async (o) => {
+      const paint = paintCache.get(paintKey(CLUSTER_STYLE, o.a.hex));
       if (paint && paint !== 'pending' && paint.status === 'ready') {
         const cut = await cutoutify(paint.url);
         const img = await loadImage(cut);
-        if (img) return { box: b, p: pos[i], img };
+        if (img) return { a: o.a, ws: o.ws, img, bounds: alphaBounds(img) || { x0: 0, y0: 0, x1: 1, y1: 1 } };
       } else {
-        const photo = photoCache.get(b.a.hex);
+        const photo = photoCache.get(o.a.hex);
         if (photo === 'pending' || paint === 'pending') {
-          getPhoto(b.a).then((pp) => {
-            if (pp && pp.found) getPaint(b.a, pp, CLUSTER_STYLE).then(() => render());
+          getPhoto(o.a).then((pp) => {
+            if (pp && pp.found) getPaint(o.a, pp, CLUSTER_STYLE).then(() => render());
           }).catch(() => {});
         } else if (photo && photo.found && paint !== 'failed') {
-          getPaint(b.a, photo, CLUSTER_STYLE).then(() => render());
+          getPaint(o.a, photo, CLUSTER_STYLE).then(() => render());
         }
       }
       return null;
     });
-    const done = (await Promise.all(jobs)).filter(Boolean);
+    let done = (await Promise.all(jobs)).filter(Boolean);
     if (my !== composeToken) return; // a newer poll took over
     grid.innerHTML = '';
+
+    // Wingspan-true scale: span px per metre, so an A380 dwarfs a Cessna.
+    const SPAN_PX_PER_M = 12;
+    const GAP = 26;
+    const W = SHEET_W;
+
+    const items = done.map((d) => {
+      const pw = (d.bounds.x1 - d.bounds.x0) || 1; // plane width fraction
+      const wpx = Math.max(60, d.ws * SPAN_PX_PER_M); // drawn width in px
+      const cw = wpx / pw; // full-canvas width needed to draw it
+      const ph = (d.bounds.y1 - d.bounds.y0) || 1;
+      const ch = (cw * (ph / 1)) ; // canvas is square
+      return {
+        d,
+        cw,
+        ch,
+        // footprint = artwork bounds only (the visual box we pack)
+        fx: d.bounds.x0 * cw,
+        fw: pw * cw,
+        fy: d.bounds.y0 * cw,
+        fh: ph * cw,
+      };
+    });
+
+    // Pack footprints largest-area-first, middle-out on a golden-angle
+    // spiral, tight (GAP only). No rows, no columns.
+    items.sort((p, q) => (q.fw * q.fh) - (p.fw * p.fh));
+    const cx = W / 2;
+    const cy = 260;
+    const gold = Math.PI * (3 - Math.sqrt(5));
+    const placed = [];
+    for (const it of items) {
+      let ok = false;
+      let th = Math.random() * Math.PI * 2;
+      let R = 0;
+      let tries = 0;
+      while (!ok && tries < 9000) {
+        const fx = cx + R * Math.cos(th) - it.fw / 2;
+        const fy = Math.max(10, cy + R * Math.sin(th) - it.fh / 2);
+        if (fx >= 8 && fx + it.fw <= W - 8) {
+          ok = true;
+          for (const p of placed) {
+            if (!(fx + it.fw + GAP <= p.fx || p.fx + p.fw + GAP <= fx ||
+                  fy + it.fh + GAP <= p.fy || p.fy + p.fh + GAP <= fy)) {
+              ok = false;
+              break;
+            }
+          }
+          if (ok) { it.fx = fx; it.fy = fy; placed.push(it); }
+        }
+        if (!ok) { th += gold; R += 1.4; tries++; }
+      }
+      if (!ok) {
+        const my2 = placed.reduce((m, p) => Math.max(m, p.fy + p.fh), 0);
+        it.fx = cx - it.fw / 2;
+        it.fy = my2 + GAP;
+        placed.push(it);
+      }
+    }
+
+    const sheetW = W;
+    const sheetHt = Math.max(
+      placed.reduce((m, p) => Math.max(m, p.fy + p.fh), 0) + 24,
+      480
+    );
     const S = 2;
     const c = document.createElement('canvas');
-    c.width = SHEET_W * S;
-    c.height = Math.max(1, Math.round(sheetH * S));
+    c.width = sheetW * S;
+    c.height = Math.round(sheetHt * S);
     c.className = 'sheet-canvas';
     const ctx = c.getContext('2d');
     if (!ctx) return;
     ctx.scale(S, S);
     ctx.fillStyle = '#f6f2e7';
-    ctx.fillRect(0, 0, SHEET_W, sheetH);
-    ctx.textAlign = 'center';
+    ctx.fillRect(0, 0, sheetW, sheetHt);
     sheetLayout = [];
-    for (const d of done) {
-      ctx.drawImage(d.img, d.p.x, d.p.y, d.box.w, d.box.w);
-      const cxp = d.p.x + d.box.w / 2;
-      const top = d.p.y + d.box.w + 10;
-      const typeLine = (d.box.a.type_desc || d.box.a.icao_type || 'aircraft').toUpperCase();
-      const regLine = d.box.a.reg || d.box.a.hex.toUpperCase();
-      const opLine = d.box.a.airline || d.box.a.owner || '';
-      ctx.font = '600 15px Georgia, serif';
-      const w1 = ctx.measureText(typeLine).width;
-      ctx.font = '700 13px monospace';
-      const w2 = ctx.measureText(regLine).width;
-      ctx.font = 'italic 12px Georgia, serif';
-      const w3 = opLine ? ctx.measureText(opLine).width : 0;
-      const bw = Math.max(w1, w2, w3) + 30;
-      const bh = opLine ? 64 : 48;
-      ctx.strokeStyle = '#26231c';
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(cxp - bw / 2, top, bw, bh);
-      ctx.fillStyle = '#26231c';
-      ctx.font = '600 15px Georgia, serif';
-      ctx.fillText(typeLine, cxp, top + 20);
-      ctx.font = '700 13px monospace';
-      ctx.fillText(regLine, cxp, top + 37);
-      if (opLine) {
-        ctx.font = 'italic 12px Georgia, serif';
-        ctx.fillStyle = '#5d574a';
-        ctx.fillText(opLine, cxp, top + 53);
-      }
-      sheetLayout.push({ a: d.box.a, x: d.p.x, y: d.p.y, w: d.box.w, h: d.box.h });
+    for (const it of placed) {
+      // draw the full square canvas so the cut-out lands exactly where
+      // its footprint was packed
+      ctx.drawImage(it.d.img, it.fx - it.d.bounds.x0 * it.cw, it.fy - it.d.bounds.y0 * it.cw, it.cw, it.cw);
+      sheetLayout.push({ a: it.d.a, x: it.fx, y: it.fy, w: it.fw, h: it.fh });
     }
     c.addEventListener('click', (e) => {
       const r = c.getBoundingClientRect();
-      const lx = (e.clientX - r.left) * (SHEET_W / r.width);
-      const ly = (e.clientY - r.top) * (sheetH / r.height);
+      const lx = (e.clientX - r.left) * (sheetW / r.width);
+      const ly = (e.clientY - r.top) * (sheetHt / r.height);
       for (const s of sheetLayout) {
         if (lx >= s.x && lx <= s.x + s.w && ly >= s.y && ly <= s.y + s.h) {
           pinnedHex = s.a.hex;
@@ -685,8 +685,8 @@
       }
     });
     grid.appendChild(c);
-    const pend = boxes.length - done.length;
-    $('cSub').textContent = `${done.length} painted on one sheet` +
+    const pend = ordered.length - done.length;
+    $('cSub').textContent = `${done.length} in the air now` +
       (pend ? ` \u00b7 painting ${pend} more` : '');
   }
 
@@ -923,7 +923,7 @@
   let rzT = null;
   window.addEventListener('resize', () => {
     clearTimeout(rzT);
-    rzT = setTimeout(() => { if (cfg.view === 'cluster') fitSheet(); }, 200);
+    rzT = setTimeout(() => { if (cfg.view === 'cluster') render(); }, 200);
   });
 
   // ---------- boot ----------
