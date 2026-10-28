@@ -216,6 +216,9 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 .fab:hover { color: var(--ink); border-color: var(--ink); }
 .fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fab svg { width: 21px; height: 21px; }
+/* Kiosk: controls fade away while the artwork is on show. */
+.fab { transition: opacity .7s ease, color .15s, border-color .15s; }
+#app.idle .fab { opacity: 0; pointer-events: none; }
 
 #btnCfg { right: 14px; }
 #btnNext { right: 64px; }
@@ -242,11 +245,18 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 
 .cluster {
   justify-content: flex-start;
-  overflow-y: auto;
-  padding-top: 8px;
+  overflow: hidden;
+  height: 100%;
+  padding: 0;
 }
 
 .cluster-head { display: none; }
+
+.cluster-grid {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
 
 .cluster-title {
   margin: 0;
@@ -263,7 +273,7 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
   color: var(--ink-soft);
 }
 
-.cluster-grid { width: 100%; padding: 0 0 6vh; }
+.cluster-grid { width: 100%; height: 100%; padding: 0; }
 .sheet-wrap { width: min(100%, 1200px); margin: 0 auto; overflow: hidden; }
 .sheet { position: relative; width: 1200px; transform-origin: top left; }
 .spec { position: absolute; text-align: center; cursor: pointer; }
@@ -286,7 +296,7 @@ main { height: 100%; display: flex; flex-direction: column; align-items: center;
 }
 .spec .c-sil svg { width: 45%; opacity: .5; }
 
-.sheet-canvas { width: 100%; height: auto; display: block; }
+.sheet-canvas { width: 100%; height: 100%; display: block; }
 .cluster-cap {
   display: inline-block;
   margin: 10px auto 0;

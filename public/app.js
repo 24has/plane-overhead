@@ -550,7 +550,8 @@
 
   let composeToken = 0;
   const imgCache = new Map(); // cutout dataURL -> loaded image
-  let sheetLayout = []; // {a,x,y,w,h} in sheet px, for tap-to-plate
+  let sheetLayout = []; // {a,x,y,w,h} in canvas px, for tap-to-plate
+  let sheetPx = { w: 1200, h: 800 }; // live canvas size for hit-testing
 
   function loadImage(url) {
     if (imgCache.has(url)) return Promise.resolve(imgCache.get(url));
@@ -590,92 +591,90 @@
     if (my !== composeToken) return; // a newer poll took over
     grid.innerHTML = '';
 
-    // Wingspan-true scale: span px per metre, so an A380 dwarfs a Cessna.
-    const SPAN_PX_PER_M = 12;
-    const GAP = 26;
-    const W = SHEET_W;
+    const gridW = Math.max(320, grid.clientWidth || 1200);
+    const gridH = Math.max(320, grid.clientHeight || 800);
+    const MARGIN = 10;
+    const W = gridW;
+    const H = gridH;
 
-    const items = done.map((d) => {
-      const pw = (d.bounds.x1 - d.bounds.x0) || 1; // plane width fraction
-      const wpx = Math.max(60, d.ws * SPAN_PX_PER_M); // drawn width in px
-      const cw = wpx / pw; // full-canvas width needed to draw it
-      const ph = (d.bounds.y1 - d.bounds.y0) || 1;
-      const ch = (cw * (ph / 1)) ; // canvas is square
-      return {
-        d,
-        cw,
-        ch,
-        // footprint = artwork bounds only (the visual box we pack)
-        fx: d.bounds.x0 * cw,
-        fw: pw * cw,
-        fy: d.bounds.y0 * cw,
-        fh: ph * cw,
-      };
-    });
+    // Biggest planes-first order (area), then scale everything as large as
+    // the screen allows. Overlap is allowed: like the printed collage, a
+    // later (smaller) plane may interlock over an earlier one's gap.
+    const GOLD = Math.PI * (3 - Math.sqrt(5));
+    let SPAN = 26; // px per metre of wingspan
+    let placed = null;
 
-    // Pack footprints largest-area-first, middle-out on a golden-angle
-    // spiral, tight (GAP only). No rows, no columns.
-    items.sort((p, q) => (q.fw * q.fh) - (p.fw * p.fh));
-    const cx = W / 2;
-    const cy = 260;
-    const gold = Math.PI * (3 - Math.sqrt(5));
-    const placed = [];
-    for (const it of items) {
-      let ok = false;
-      let th = Math.random() * Math.PI * 2;
-      let R = 0;
-      let tries = 0;
-      while (!ok && tries < 9000) {
-        const fx = cx + R * Math.cos(th) - it.fw / 2;
-        const fy = Math.max(10, cy + R * Math.sin(th) - it.fh / 2);
-        if (fx >= 8 && fx + it.fw <= W - 8) {
-          ok = true;
-          for (const p of placed) {
-            if (!(fx + it.fw + GAP <= p.fx || p.fx + p.fw + GAP <= fx ||
-                  fy + it.fh + GAP <= p.fy || p.fy + p.fh + GAP <= fy)) {
-              ok = false;
-              break;
-            }
+    for (let attempt = 0; attempt < 14; attempt++) {
+      const items = done.map((d) => {
+        const pw = (d.bounds.x1 - d.bounds.x0) || 1;
+        const ph = (d.bounds.y1 - d.bounds.y0) || 1;
+        const cw = Math.max(80, (d.ws * SPAN) / pw);
+        return {
+          d, cw,
+          fx: d.bounds.x0 * cw, fy: d.bounds.y0 * cw,
+          fw: pw * cw, fh: ph * cw,
+        };
+      });
+      items.sort((p, q) => (q.fw * q.fh) - (p.fw * p.fh));
+      const cx = W / 2, cy = H * 0.46;
+      const out = [];
+      let fit = true;
+      for (const it of items) {
+        let ok = false;
+        let th = Math.random() * Math.PI * 2;
+        let R = 0;
+        let tries = 0;
+        while (!ok && tries < 9000) {
+          const fx = cx + R * Math.cos(th) - it.fw / 2;
+          const fy = Math.max(MARGIN, cy + R * Math.sin(th) - it.fh / 2);
+          if (fx >= MARGIN && fx + it.fw <= W - MARGIN && fy + it.fh <= H - MARGIN) {
+            ok = true;
+            it.fx = fx;
+            it.fy = fy;
           }
-          if (ok) { it.fx = fx; it.fy = fy; placed.push(it); }
+          if (!ok) { th += GOLD; R += 2.2; tries++; }
         }
-        if (!ok) { th += gold; R += 1.4; tries++; }
+        if (!ok) { fit = false; break; }
+        out.push(it);
       }
-      if (!ok) {
-        const my2 = placed.reduce((m, p) => Math.max(m, p.fy + p.fh), 0);
-        it.fx = cx - it.fw / 2;
-        it.fy = my2 + GAP;
-        placed.push(it);
-      }
+      if (fit && out.length) { placed = out; break; }
+      SPAN *= 0.86; // too big for this screen: shrink and retry
+    }
+    if (!placed) {
+      // Degenerate case (one huge plane on a tiny screen): scale to fit.
+      const it0 = done.map((d) => {
+        const pw = (d.bounds.x1 - d.bounds.x0) || 1;
+        const ph = (d.bounds.y1 - d.bounds.y0) || 1;
+        const cw = Math.min(W - 2 * MARGIN, (d.ws * 10) / pw);
+        return { d, cw, fx: d.bounds.x0 * cw, fy: d.bounds.y0 * cw, fw: pw * cw, fh: ph * cw };
+      })[0];
+      placed = it0 ? [it0] : [];
     }
 
-    const sheetW = W;
-    const sheetHt = Math.max(
-      placed.reduce((m, p) => Math.max(m, p.fy + p.fh), 0) + 24,
-      480
-    );
     const S = 2;
     const c = document.createElement('canvas');
-    c.width = sheetW * S;
-    c.height = Math.round(sheetHt * S);
+    c.width = Math.round(W * S);
+    c.height = Math.round(H * S);
     c.className = 'sheet-canvas';
     const ctx = c.getContext('2d');
     if (!ctx) return;
     ctx.scale(S, S);
+    sheetPx = { w: W, h: H };
     ctx.fillStyle = '#f6f2e7';
-    ctx.fillRect(0, 0, sheetW, sheetHt);
+    ctx.fillRect(0, 0, W, H);
     sheetLayout = [];
+    // largest first so smaller planes interlock over the big ones' gaps
     for (const it of placed) {
-      // draw the full square canvas so the cut-out lands exactly where
-      // its footprint was packed
       ctx.drawImage(it.d.img, it.fx - it.d.bounds.x0 * it.cw, it.fy - it.d.bounds.y0 * it.cw, it.cw, it.cw);
       sheetLayout.push({ a: it.d.a, x: it.fx, y: it.fy, w: it.fw, h: it.fh });
     }
     c.addEventListener('click', (e) => {
       const r = c.getBoundingClientRect();
-      const lx = (e.clientX - r.left) * (sheetW / r.width);
-      const ly = (e.clientY - r.top) * (sheetHt / r.height);
-      for (const s of sheetLayout) {
+      const lx = (e.clientX - r.left) * (sheetPx.w / r.width);
+      const ly = (e.clientY - r.top) * (sheetPx.h / r.height);
+      // topmost hit wins: iterate small-to-large
+      for (let i = sheetLayout.length - 1; i >= 0; i--) {
+        const s = sheetLayout[i];
         if (lx >= s.x && lx <= s.x + s.w && ly >= s.y && ly <= s.y + s.h) {
           pinnedHex = s.a.hex;
           setView('plate');
@@ -685,9 +684,6 @@
       }
     });
     grid.appendChild(c);
-    const pend = ordered.length - done.length;
-    $('cSub').textContent = `${done.length} in the air now` +
-      (pend ? ` \u00b7 painting ${pend} more` : '');
   }
 
   function setView(v) {
@@ -925,6 +921,20 @@
     clearTimeout(rzT);
     rzT = setTimeout(() => { if (cfg.view === 'cluster') render(); }, 200);
   });
+
+  // Kiosk idle: controls fade out after a quiet minute, reappear on touch.
+  let idleT = null;
+  function pokeIdle() {
+    document.getElementById('app').classList.remove('idle');
+    clearTimeout(idleT);
+    idleT = setTimeout(() => {
+      document.getElementById('app').classList.add('idle');
+    }, 45000);
+  }
+  ['touchstart', 'touchmove', 'mousedown', 'mousemove', 'keydown'].forEach((ev) => {
+    window.addEventListener(ev, pokeIdle, { passive: true });
+  });
+  pokeIdle();
 
   // ---------- boot ----------
 
