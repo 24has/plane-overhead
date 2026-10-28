@@ -598,10 +598,13 @@
     const H = gridH;
 
     // Biggest planes-first order (area), then scale everything as large as
-    // the screen allows. Overlap is allowed: like the printed collage, a
-    // later (smaller) plane may interlock over an earlier one's gap.
+    // the screen allows. Planes may interlock at their edges — a wingtip
+    // over a neighbour's empty corner — but never stack: the shared area
+    // between any two footprints is capped, so every fuselage stays
+    // readable, as in the printed collage.
     const GOLD = Math.PI * (3 - Math.sqrt(5));
-    let SPAN = 26; // px per metre of wingspan
+    const OVERLAP_CAP = 0.16; // of the smaller footprint's area
+    let SPAN = 24; // px per metre of wingspan
     let placed = null;
 
     for (let attempt = 0; attempt < 14; attempt++) {
@@ -621,24 +624,43 @@
       let fit = true;
       for (const it of items) {
         let ok = false;
+        let best = null;
         let th = Math.random() * Math.PI * 2;
         let R = 0;
         let tries = 0;
-        while (!ok && tries < 9000) {
+        while (tries < 9000) {
           const fx = cx + R * Math.cos(th) - it.fw / 2;
           const fy = Math.max(MARGIN, cy + R * Math.sin(th) - it.fh / 2);
           if (fx >= MARGIN && fx + it.fw <= W - MARGIN && fy + it.fh <= H - MARGIN) {
-            ok = true;
-            it.fx = fx;
-            it.fy = fy;
+            // worst shared-area ratio against everything already placed
+            let worst = 0;
+            for (const p of out) {
+              const ox = Math.min(fx + it.fw, p.fx + p.fw) - Math.max(fx, p.fx);
+              const oy = Math.min(fy + it.fh, p.fy + p.fh) - Math.max(fy, p.fy);
+              if (ox > 0 && oy > 0) {
+                const share = (ox * oy) / Math.min(it.fw * it.fh, p.fw * p.fh);
+                if (share > worst) worst = share;
+              }
+            }
+            if (worst <= OVERLAP_CAP) {
+              // first spiral hit is the most central; keep scanning only
+              // for a strictly cleaner spot nearby
+              if (!best) best = { fx, fy, worst };
+              else if (worst < best.worst - 0.02) best = { fx, fy, worst };
+              if (best && best.worst === 0) break;
+            }
           }
-          if (!ok) { th += GOLD; R += 2.2; tries++; }
+          th += GOLD;
+          R += 2.0;
+          tries++;
         }
-        if (!ok) { fit = false; break; }
+        if (!best) { fit = false; break; }
+        it.fx = best.fx;
+        it.fy = best.fy;
         out.push(it);
       }
       if (fit && out.length) { placed = out; break; }
-      SPAN *= 0.86; // too big for this screen: shrink and retry
+      SPAN *= 0.88; // too crowded for this screen: shrink and retry
     }
     if (!placed) {
       // Degenerate case (one huge plane on a tiny screen): scale to fit.
